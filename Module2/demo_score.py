@@ -79,6 +79,9 @@ def main():
                     help="Score a single segmented outfit folder (run_pipeline.py output) end-to-end "
                          "and render a Harmoniousness figure, instead of the aggregate demo.")
     ap.add_argument("--photo", default=None, help="Original photo to show in --score_dir mode")
+    ap.add_argument("--ref_cache", default=None,
+                    help="JSON cache of the reference score distribution. In --score_dir mode, "
+                         "load it (instant) instead of re-scoring 500 outfits; built on first run.")
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -96,37 +99,46 @@ def main():
     model.load_state_dict(torch.load(args.checkpoint, map_location=device, weights_only=True))
     model.eval()
 
-    # ---- aggregate: how often does the model rank the real outfit above the corrupted one? ----
-    # Also collect real-outfit raw scores to calibrate the 0-100 percentile display.
-    wins = total = 0
-    raw_margins, ref = [], []
-    for idx in ds.valid_indices[:args.num_eval]:
-        nodes = ds.load_outfit_nodes(idx)
-        neg = tg.make_negative_sample(ds, nodes, pool, idx)
-        if neg is None:
-            continue
-        r = raw_score(model, ds, nodes, attr_mask, device)
-        c = raw_score(model, ds, neg, attr_mask, device)
-        wins += int(r > c)
-        raw_margins.append(r - c)
-        ref.append(r)
-        total += 1
-    rate = wins / max(total, 1)
-    ref = np.sort(np.asarray(ref, dtype=np.float64))
+    # ---- reference score distribution (calibrates the 0-100 percentile) + aggregate win-rate ----
+    # In single-photo mode we can load a cached reference so a live re-run is instant (no 500-outfit pass).
+    import json
+    rate = total = None
+    if args.score_dir and args.ref_cache and os.path.exists(args.ref_cache):
+        ref = np.sort(np.asarray(json.load(open(args.ref_cache)), dtype=np.float64))
+        print(f"[demo] loaded reference distribution ({len(ref)} outfits) from "
+              f"{os.path.basename(args.ref_cache)}")
+    else:
+        wins = total = 0
+        raw_margins, ref = [], []
+        for idx in ds.valid_indices[:args.num_eval]:
+            nodes = ds.load_outfit_nodes(idx)
+            neg = tg.make_negative_sample(ds, nodes, pool, idx)
+            if neg is None:
+                continue
+            r = raw_score(model, ds, nodes, attr_mask, device)
+            c = raw_score(model, ds, neg, attr_mask, device)
+            wins += int(r > c)
+            raw_margins.append(r - c)
+            ref.append(r)
+            total += 1
+        rate = wins / max(total, 1)
+        ref = np.sort(np.asarray(ref, dtype=np.float64))
+        print(f"\n[demo] Real > Corrupted on {wins}/{total} test outfits = {rate:.1%} "
+              f"(mean raw margin {np.mean(raw_margins):+.3f})\n")
+        if args.ref_cache:  # save for instant future single-photo runs
+            json.dump(ref.tolist(), open(args.ref_cache, "w"))
+            print(f"[demo] cached reference distribution -> {args.ref_cache}")
 
     def pct(raw):  # Harmoniousness percentile (0-100) vs real test outfits
         return 100.0 * np.searchsorted(ref, raw, side="right") / len(ref)
 
-    print(f"\n[demo] Real > Corrupted on {wins}/{total} test outfits = {rate:.1%} "
-          f"(mean raw margin {np.mean(raw_margins):+.3f})\n")
-
     # ---- single-photo mode: score one real segmented outfit end-to-end ----
     if args.score_dir:
-        import json
         garments = json.load(open(os.path.join(args.score_dir, "metadata.json")))
         nodes = [od.build_node_from_meta(args.score_dir, g) for g in garments]
         raw = raw_score(model, ds, nodes, attr_mask, device)
         score = pct(raw)
+        tg.set_seed(args.seed)  # deterministic corruption so live-demo numbers are reproducible
         neg = tg.make_negative_sample(ds, nodes, pool, current_idx=-1)
         corr = pct(raw_score(model, ds, neg, attr_mask, device)) if neg is not None else None
         print(f"[demo] {os.path.basename(args.score_dir)}: {len(nodes)} garments "
