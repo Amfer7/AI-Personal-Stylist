@@ -1,0 +1,20 @@
+# Core image & numerical processing
+numpy
+opencv-python
+matplotlib
+pillow
+
+# Deep Learning (PyTorch & Transformers)
+torch
+torchvision
+transformers>=4.30.0
+
+# OpenAI CLIP
+ftfy
+regex
+tqdm
+git+https://github.com/openai/CLIP.git
+
+# Background Removal / Transparent Masking
+rembg
+onnxruntime
