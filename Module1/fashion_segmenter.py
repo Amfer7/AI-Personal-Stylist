@@ -124,11 +124,13 @@ def segment_clothing(
     orig_w, orig_h = image_rgb.size
 
     inputs = processor(images=image_rgb, return_tensors="pt").to(dev)
-    with torch.no_grad():
+    # fp16 autocast on SegFormer only (fp32 model -> real speedup). CLIP paths are left
+    # untouched (CLIP is already fp16 on CUDA; mixing there caused an earlier dtype bug).
+    with torch.no_grad(), _amp(dev):
         outputs = model(**inputs)
 
     upsampled_logits = F.interpolate(
-        outputs.logits,
+        outputs.logits.float(),
         size=(orig_h, orig_w),
         mode="bilinear",
         align_corners=False

@@ -68,7 +68,6 @@ def main():
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--batch_size", type=int, default=64)
     p.add_argument("--num_negatives", type=int, default=1)
-    p.add_argument("--grad_accum", type=int, default=16)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--no_attributes", action="store_true",
                    help="Ablation: train without Module 1 attribute/fashion-theory features")
@@ -120,7 +119,6 @@ def main():
                "--epochs", str(args.epochs),
                "--batch_size", str(args.batch_size),
                "--num_negatives", str(args.num_negatives),
-               "--grad_accum", str(args.grad_accum),
                "--lr", str(args.lr),
                "--seed", str(args.seed)]
         if args.no_attributes:
