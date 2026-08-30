@@ -2,8 +2,6 @@
 
 *The whole story of Module 2A in one place: what it started as, what it's for, how it works,
 every change we made, a dedicated optimisations section, and the final Fashion144K results.*
-This is the single source of truth for Module 2A: it absorbs and replaces the former
-`MODULE2A.md` (design/changes) and `plan.md` (performance plan + execution log).
 
 ---
 
@@ -207,8 +205,8 @@ help; removing them (the subset) recovers reliable attrs back to ~baseline parit
 **seed-42-only** result — "baseline beats attributes by −0.0171" — as the verdict. That was a
 **seed artifact**: seed 42 was simultaneously full-attr's worst *and* subset's best draw. With
 three seeds the effect **evaporates**. Lesson: at ±0.02 per-seed noise, no full-scale single-seed
-claim was trustworthy. (The 5k §2.6 result was already 3-seed and stands: at 5k the full-attr set
-did lose −0.013 — consistent with "the full noisy set is the worst arm".)
+claim was trustworthy. (The earlier 5k seed-averaged result already agreed: at 5k the full-attr
+set lost −0.013 — consistent with "the full noisy set is the worst arm".)
 
 **Why (interpretation):** CLIP already encodes colour/pattern/formality *visually*, so the explicit
 attributes are largely redundant — they can't add much, and the noisy dims add variance. Hence the
@@ -297,8 +295,3 @@ python 03_train_gnn.py --output_root ../Fashion144k_v1/outputs \
   `build_graph`/`evaluate`/`train` in `03`, passthrough in `run_all`). Reuses the existing feature
   store — the 26-D attrs are column-masked at graph-build time, so **no re-segmentation or store
   rebuild** is needed to try attribute subsets.
-
----
-
-*This document supersedes and replaces the former `MODULE2A.md` (design + change log) and
-`plan.md` (performance plan + full-run execution log), which have been folded in here and removed.*
