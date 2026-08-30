@@ -1,7 +1,7 @@
-# Module 2A — Compatibility GNN · mini-README
+# Module 2 — Compatibility GNN · mini-README
 
-*The whole story of Module 2A in one place: what it started as, what it's for, how it works,
-every change we made, a dedicated optimisations section, and the final Fashion144K results.*
+*The whole story of Module 2 in one place: what it started as, what it's for, how it works,
+every change made, a dedicated optimisations section, and the final Fashion144K results.*
 
 ---
 
@@ -26,7 +26,7 @@ every change we made, a dedicated optimisations section, and the final Fashion14
 
 ## 1. What it initially was (baseline, as received)
 
-Module2A arrived as a **Google Colab pipeline over the Fashion144K dataset** — three scripts
+Module2 arrived as a **Google Colab pipeline over the Fashion144K dataset** — three scripts
 driven by a notebook:
 
 | File | Role |
@@ -60,14 +60,13 @@ a crowd-derived *fashionability* score. Ships `split.mat` (train/val/test ids) a
 
 ## 2. The goal
 
-Produce a single **outfit compatibility / "Harmoniousness" score** — the PDF's *Module 2:
-Compatibility Analysis*. Concretely:
+Produce a single **outfit compatibility / "Harmoniousness" score**. Concretely:
 
 1. Represent an outfit as a **graph**: nodes = garments, edges = pairwise garment relationships.
 2. Learn, from real vs. deliberately-corrupted outfits, to **rank real outfits above corrupted
    ones** (a garment swapped for a mismatched one).
 3. Evaluate honestly by **AUC on the official Fashion144K test split**, comparable to prior work.
-4. Make retraining **cheap enough to sweep** (many parameter tweaks in an afternoon).
+4. Make retraining **cheap enough to sweep** (many parameter tweaks in one sitting).
 
 ---
 
@@ -80,7 +79,7 @@ Compatibility Analysis*. Concretely:
     (same pixels CLIP sees) — replaces the dataset's `col_cco.mat`.
   - 26-D attributes from Module 1: one-hots for silhouette(4)/pattern(6)/fabric(6)/fit(3) + 7
     scalars (formality, hue sin/cos, saturation, value, extent, aspect). Missing → zeros.
-- **Edge features (5-D, directed):** the PDF's fashion-theory cues —
+- **Edge features (5-D, directed):** fashion-theory cues —
   `[category-pair weight, hue separation, formality difference, volume contrast (area log-ratio),
   same-category flag]`. A full `CATEGORY_EDGE_WEIGHTS` table (top↔bottom 1.0 … default 0.3)
   supplies the prior.
@@ -102,7 +101,7 @@ Compatibility Analysis*. Concretely:
 
 ---
 
-## 4. What we changed (journey)
+## 4. What changed (journey)
 
 ### 4.1 Dropped Colab → local GPU
 Removed the Drive/notebook/external-repo apparatus. `01_segment_batch.py` now imports the
@@ -151,7 +150,7 @@ fix that only the full 144k scale revealed.
 | **1** | **Feature store** (`build_feature_store.py`, `--feature_store`): one-time memmap of `[512 CLIP | 32 colour | 26 attr]` + scalars; colour histogram computed **once** | training never reopens a PNG; **bit-identical** graphs, exact CPU AUC match; ~1 GB for 144k via `mmap_mode='r'` |
 | **2** | **GPU minibatching** (`--batch_size`): `collate` packs B outfits into one disconnected graph; segment-mean readout; vectorised BPR | **~20× faster** — a 10-epoch 5k run went **~300s → 14s**, AUC unchanged (parity test) |
 | **3** | **Multi-negative** (`--num_negatives`, K=4 nudged 5k test AUC 0.6568→0.6665); `--val_eval_max` | better signal; DataLoader workers obviated (no I/O left) |
-| **4** ⭐ | **Negative sampling O(pool) → O(1)** (this session) | **~27× faster at full scale** |
+| **4** ⭐ | **Negative sampling O(pool) → O(1)** | **~27× faster at full scale** |
 
 ### fp16 caveat (Tier 0)
 A blanket fp16 autocast was **reverted** early: it cast image features to float32 while cached
@@ -159,7 +158,7 @@ CLIP **text** features stayed float16 → `float != Half` matmul that failed *ev
 already fp16 on CUDA, so autocast added nothing there. The **later** SegFormer-only autocast
 (§4.4) is the safe, scoped version (it never touches CLIP).
 
-### Tier 4 — the full-scale bottleneck (found & fixed this session)
+### Tier 4 — the full-scale bottleneck
 - **Symptom:** ~**27 min/epoch**, **GPU at 3%** (CPU-bound). The store + batching had made the
   GPU work trivial, so nothing hid the CPU cost anymore.
 - **Cause:** `make_negative_sample` did `[c for c in category_pool[cat] if c[0] != idx]` — a full
@@ -169,13 +168,6 @@ already fp16 on CUDA, so autocast added nothing there. The **later** SegFormer-o
 - **Fix:** **rejection sampling** — pick a random pool entry, retry only on the rare same-outfit
   collision. O(1) amortised, **identical draw distribution**. → **~1 min/epoch**, GPU no longer
   starved, val/test AUC preserved.
-
-### Feature-store gotcha (OneDrive)
-A first store build died **silently** (0-byte log, no traceback) leaving a *fresh 480k
-`features.npy` paired with a stale 5k `index.json`* — an unusable mismatch. Root cause: the 1 GB
-memmap lives in a **OneDrive-synced** folder; sync can lock/kill the file mid-write. Re-running
-with unbuffered output (`python -u`) completed cleanly. **Recommendation:** build the store to a
-local, non-OneDrive path for heavy/repeated runs.
 
 ---
 
