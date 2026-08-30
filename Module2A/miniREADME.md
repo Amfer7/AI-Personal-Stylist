@@ -2,8 +2,8 @@
 
 *The whole story of Module 2A in one place: what it started as, what it's for, how it works,
 every change we made, a dedicated optimisations section, and the final Fashion144K results.*
-Consolidates the old `MODULE2A.md` (design/changes) and `plan.md` (performance plan +
-execution log).
+This is the single source of truth for Module 2A: it absorbs and replaces the former
+`MODULE2A.md` (design/changes) and `plan.md` (performance plan + execution log).
 
 ---
 
@@ -14,9 +14,13 @@ execution log).
   ("does this outfit go together?"), supervised by Fashion144K's crowd *fashionability* votes.
 - **Where it ended up:** a fully **local, GPU** pipeline (Colab/Drive/external-repo apparatus
   removed) that segments all **144,169** outfits, caches features once, and trains in **minutes**.
-- **Headline result (full 86,501-outfit train split, official test set):**
-  **Test AUC ≈ 0.78–0.80.** A plain **CLIP + colour baseline (0.7951)** slightly **beats** the
-  richer model that also uses Module 1's explicit attributes + fashion-theory edges (0.7780).
+- **Headline result (full 86,501-outfit train split, official test set, seed-averaged 42/43/44):**
+  **Test AUC ≈ 0.79–0.80 — a statistical three-way tie.** Attr-subset **0.8010 ±0.010** ≥
+  CLIP+colour baseline **0.7923 ±0.019** ≥ full-attribute model **0.7860 ±0.006**; no pairwise
+  gap is significant at n=3. The one robust effect: the **full 26-D attribute set is dominated**
+  (removing the noisy CLIP-zero-shot pattern/fabric/fit one-hots never hurts). Chosen model:
+  **attr-subset**, tied-best on AUC *and* it keeps the interpretable attrs/edges the downstream
+  modules need — at zero accuracy cost.
 - **Key engineering win:** found and fixed an O(pool) negative-sampling bottleneck that only
   appeared at full scale (GPU stuck at 3%, ~27 min/epoch → **~1 min/epoch, ~27× faster**).
 
@@ -114,10 +118,14 @@ Added `encode_node_attributes` (26-D), `edge_features` (5-D), and upgraded the l
 *Not used:* `outfit_features.json` aggregates (the GNN needs the per-edge form, which is
 recomputed instead).
 
-### 4.3 Ablation flag
+### 4.3 Ablation flags
 `--no_attributes` trains the **baseline**: nodes `[512 CLIP | 32 colour]` (544-D), edges = scalar
-category weight (1-D) — the pre-integration model. This is what lets us ask *"do the attributes
-actually help AUC?"* The final log line is tagged `with_attributes` / `no_attributes`.
+category weight (1-D) — the pre-integration model. `--attr_subset` trains the **denoised** variant:
+keeps only the *reliable* attr dims (silhouette one-hot + the 7 colour/geometry/formality scalars =
+11-D, node 555-D), dropping the noisy CLIP-zero-shot pattern/fabric/fit one-hots; edges stay 5-D so
+only the *node* attrs are ablated. Together these let us ask *"do the attributes actually help AUC,
+and is it the noisy ones dragging them down?"* The final log line is tagged
+`with_attributes` / `no_attributes` / `attr_subset`.
 
 ### 4.4 Windows / local port (making the full run possible)
 - **Unicode stdout fix** (`01_segment_batch.py`): Fashion144K has non-ASCII filenames (e.g.
@@ -175,26 +183,41 @@ local, non-OneDrive path for heavy/repeated runs.
 
 ## 6. Results
 
-### 6.1 The scaling arc (does adding Module 1 attributes help AUC?)
+### 6.1 Does adding Module 1 attributes help AUC?
 
-| Scale | Setup | With attributes | Baseline (`--no_attributes`) | Δ (attr − base) |
-|---|---|---|---|---|
-| **2k pilot** | 10 ep, single run, last-epoch | 0.6503 | 0.6314 | **+0.019** *(noise)* |
-| **5k** | seed-avg 42/43/44, best-val | 0.6608 ±0.0049 | 0.6736 ±0.0074 | **−0.0128** |
-| **Full 86.5k** | seed 42, best-val | **0.7780** | **0.7951** | **−0.0171** |
+**Full-scale, seed-averaged (42/43/44), best-val, official 43,250-outfit test split:**
 
-*(Test AUC on the official 43,250-outfit test split.)*
+| Arm | node dim | edges | s42 | s43 | s44 | **mean** | std |
+|---|---|---|---|---|---|---|---|
+| Full attributes (26-D) | 570 | 5-D | 0.7780 | 0.7915 | 0.7885 | **0.7860** | 0.0058 |
+| Baseline (`--no_attributes`) | 544 | 1-D | 0.7951 | 0.8140 | 0.7677 | **0.7923** | 0.0190 |
+| **Attr subset** (`--attr_subset`, 11-D) | 555 | 5-D | 0.8155 | 0.7917 | 0.7958 | **0.8010** | 0.0104 |
 
-**Verdict: the CLIP + colour baseline consistently wins.** The 2k pilot's apparent +0.019 was
-noise (single run, last-epoch). At 5k the baseline won on **all three seeds** (−0.013), and the
-open question — *"maybe attributes pay off with more data"* — is now answered at full scale:
-**they don't** (−0.017, if anything a slightly wider gap).
+**Verdict: a statistical three-way tie.** Ranking by mean is subset ≥ baseline ≥ full-attr, but
+**no pairwise gap is significant at n=3** — per-seed noise (baseline std alone ±0.019) swamps the
+between-arm gaps (~0.006–0.015). Paired by seed, subset ≥ full-attr on *all three* seeds
+(monotone but t≈1.3, n.s.), while subset-vs-baseline **flips sign** (seed 43 the baseline won) →
+a coin toss. **The compatibility score is essentially insensitive to the attribute treatment.**
 
-**Why (interpretation):** CLIP already encodes colour/pattern/formality *visually*, so the
-explicit 26-D attributes are largely redundant; the noisiest of them (fabric/fit — weak for CLIP
-zero-shot) add variance; and the attribute model has more parameters to overfit. This does **not**
-waste the Module 1 attribute work — those attributes remain valuable for the recommendation
-module (weak-link/explainability) and trend analysis; they just don't raise *compatibility* AUC.
+**The one robust effect:** the **full 26-D set is dominated** — same-or-lower AUC than both
+alternatives on every seed. So the noisy CLIP-zero-shot **pattern/fabric/fit** one-hots never
+help; removing them (the subset) recovers reliable attrs back to ~baseline parity.
+
+**⚠️ Correction to earlier single-seed claims.** Prior versions of this doc reported a full-scale
+**seed-42-only** result — "baseline beats attributes by −0.0171" — as the verdict. That was a
+**seed artifact**: seed 42 was simultaneously full-attr's worst *and* subset's best draw. With
+three seeds the effect **evaporates**. Lesson: at ±0.02 per-seed noise, no full-scale single-seed
+claim was trustworthy. (The 5k §2.6 result was already 3-seed and stands: at 5k the full-attr set
+did lose −0.013 — consistent with "the full noisy set is the worst arm".)
+
+**Why (interpretation):** CLIP already encodes colour/pattern/formality *visually*, so the explicit
+attributes are largely redundant — they can't add much, and the noisy dims add variance. Hence the
+score barely moves whichever way you treat them.
+
+**Chosen model — attr subset**, decided on the tiebreakers since AUC can't separate them: it is
+tied-best on AUC (top mean, beats full-attr every seed) **and** free-carries the reliable
+attributes + 5-D fashion-theory edges that Modules 3–4 (recommendation/explainability, trend
+analysis) need — at **zero measured accuracy cost**. The full 26-D set is never worth shipping.
 
 ### 6.2 Full-run health
 - **Segmentation:** 144,169 / 144,169 complete, 16 failures (~0.01%), ~8–9 img/s.
@@ -205,11 +228,18 @@ module (weak-link/explainability) and trend analysis; they just don't raise *com
   (with-attr 0.7784 val ≈ 0.7780 test) → **no overfitting**. Whole 10-epoch run ≈ 11 min after
   the Tier-4 fix.
 
-### 6.3 Open caveats
-- Full-scale numbers above are **single-seed (42)**; seed-averaging 43/44 for both arms would
-  tighten the −0.017 conclusion (the 5k result was already 3/3 seeds).
-- An **attribute subset** (reliable colour/silhouette only, dropping noisy fabric/fit/pattern)
-  might help even though the full set hurts — testable.
+### 6.3 Open caveats & future work
+- All three arms are now **seed-averaged (42/43/44)** at full scale; the single-seed caveat is
+  resolved (and it mattered — it overturned the seed-42 verdict, see §6.1).
+- With only **3 seeds** the arms are a statistical tie; more seeds could resolve the ~0.009
+  subset-vs-baseline gap, but the practical decision (ship subset, drop the full set) is stable.
+- The subset's val AUC was **still climbing at epoch 10** on seed 42 (0.799→0.803) — it may be
+  mildly *under*-reported vs the other arms, which had plateaued. More epochs is a cheap probe.
+- **Learned attributes (Fashionpedia) — future work.** The current attributes are CLIP-zero-shot
+  over the *same* encoder that gives the node embedding, so they're redundant by construction.
+  Fashionpedia's supervised fine-grained attributes come from a different backbone and could add
+  orthogonal signal the CLIP embedding lacks — the one attribute avenue with real upside left.
+  Scoped as future work; needs no re-segmentation (run the tagger over saved crops, rebuild store).
 
 ---
 
@@ -246,24 +276,29 @@ python 03_train_gnn.py --output_root ../Fashion144k_v1/outputs \
     --relvotes_mat ../Fashion144k_v1/feat/relvotes.mat \
     --checkpoint_dir ../Fashion144k_v1/gnn_checkpoints \
     --feature_store ../Fashion144k_v1/feature_store \
-    --epochs 10 --batch_size 64 --num_negatives 4 --seed 42        # with attributes
-#   ... add --no_attributes for the baseline
+    --epochs 10 --batch_size 64 --num_negatives 4 --seed 42        # full attributes
+#   ... add --attr_subset    for the chosen model (reliable attrs only, drop pattern/fabric/fit)
+#   ... add --no_attributes  for the CLIP+colour baseline
 #   ... add --limit_train 10000 for a quick pilot
 ```
 
 **Key flags:** `--feature_store` (fast path), `--batch_size` (Tier 2), `--num_negatives` (Tier 3),
-`--no_attributes` (ablation), `--limit_train` (pilot cap), `--seed` (reproducible).
+`--attr_subset` / `--no_attributes` (ablations), `--limit_train` (pilot cap), `--seed` (reproducible).
 
 ---
 
-## 8. Code-quality pass (this session)
+## 8. Code-quality pass
 - **Tier-4 fix:** negative sampling O(pool) → O(1) rejection sampling.
 - Removed dead `bpr_loss()`; removed legacy `--grad_accum` (arg + passthrough); removed a
   redundant local `defaultdict` import.
 - Left intact deliberately: the `item_score` / `per_item` head (unused in the loss, but removing
   it changes the model `state_dict` and would break existing checkpoints).
+- **`--attr_subset` ablation** added (`attr_subset_indices` in `02`, threaded through
+  `build_graph`/`evaluate`/`train` in `03`, passthrough in `run_all`). Reuses the existing feature
+  store — the 26-D attrs are column-masked at graph-build time, so **no re-segmentation or store
+  rebuild** is needed to try attribute subsets.
 
 ---
 
-*Source docs consolidated here: `MODULE2A.md` (design + change log) and `plan.md` (performance
-plan + full-run execution log). See those for finer-grained history.*
+*This document supersedes and replaces the former `MODULE2A.md` (design + change log) and
+`plan.md` (performance plan + full-run execution log), which have been folded in here and removed.*

@@ -171,6 +171,17 @@ def make_negative_sample(dataset, nodes, category_pool, current_idx):
 
 # ---------------- training loop ----------------
 
+def resolve_attr_mask(args, use_attributes):
+    """Returns the attr-subset column index list when --attr_subset is set, else None.
+    Errors if combined with --no_attributes (there are no node attrs to subset)."""
+    if not getattr(args, "attr_subset", False):
+        return None
+    if not use_attributes:
+        raise SystemExit("[ERROR] --attr_subset cannot be combined with --no_attributes "
+                         "(the baseline has no attribute node features to subset).")
+    return outfit_dataset.attr_subset_indices()
+
+
 def set_seed(seed):
     """Seed all RNGs so runs (and the with/without-attributes comparison) are reproducible."""
     random.seed(seed)
@@ -199,6 +210,11 @@ def train(args):
     print(f"[INFO] use_attributes = {use_attributes} "
           f"({'full attr+edge features' if use_attributes else 'ABLATION: CLIP+colour only, scalar edges'})")
 
+    attr_mask = resolve_attr_mask(args, use_attributes)
+    if attr_mask is not None:
+        print(f"[INFO] ATTR SUBSET ablation: keeping {len(attr_mask)}/{NODE_ATTR_DIM} attr dims "
+              f"(silhouette + scalars; dropping pattern/fabric/fit one-hots)")
+
     train_ds = OutfitDataset(split["train"], args.output_root, relvotes, feature_store=args.feature_store)
     val_ds = OutfitDataset(split["val"], args.output_root, relvotes, feature_store=args.feature_store)
     print(f"[INFO] {len(train_ds)} usable train outfits, {len(val_ds)} usable val outfits")
@@ -212,7 +228,12 @@ def train(args):
                                             cache_path=os.path.join(args.checkpoint_dir, "category_pool.pkl"))
     print(f"[INFO] category pool sizes: {[(k, len(v)) for k, v in category_pool.items()]}")
 
-    attr_dim = NODE_ATTR_DIM if use_attributes else 0
+    if not use_attributes:
+        attr_dim = 0
+    elif attr_mask is not None:
+        attr_dim = len(attr_mask)
+    else:
+        attr_dim = NODE_ATTR_DIM
     edge_dim = EDGE_ATTR_DIM if use_attributes else 1
     model = CLIPOutfitGNN(attr_dim=attr_dim, edge_dim=edge_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -244,10 +265,12 @@ def train(args):
                 if not negs:
                     continue
                 pi = len(pos_graphs)
-                pos_graphs.append(train_ds.build_graph(nodes, fs, use_attributes=use_attributes))
+                pos_graphs.append(train_ds.build_graph(nodes, fs, use_attributes=use_attributes,
+                                                       attr_mask=attr_mask))
                 weights.append(fs)
                 for ng in negs:
-                    neg_graphs.append(train_ds.build_graph(ng, fs, use_attributes=use_attributes))
+                    neg_graphs.append(train_ds.build_graph(ng, fs, use_attributes=use_attributes,
+                                                           attr_mask=attr_mask))
                     neg_owner.append(pi)
             if not pos_graphs:
                 continue
@@ -274,7 +297,8 @@ def train(args):
                 running_loss, nb = 0.0, 0
 
         val_auc = evaluate(model, val_ds, category_pool, device,
-                            max_outfits=args.val_eval_max, use_attributes=use_attributes)
+                            max_outfits=args.val_eval_max, use_attributes=use_attributes,
+                            attr_mask=attr_mask)
         print(f"[EPOCH {epoch}] val AUC = {val_auc:.4f}")
 
         ckpt_path = os.path.join(args.checkpoint_dir, f"clip_outfit_gnn_epoch{epoch}.pt")
@@ -295,7 +319,8 @@ def train(args):
 
 
 @torch.no_grad()
-def evaluate(model, dataset, category_pool, device, max_outfits=None, use_attributes=True):
+def evaluate(model, dataset, category_pool, device, max_outfits=None, use_attributes=True,
+             attr_mask=None):
     """AUC over pos-vs-neg score pairs: label 1 for the positive outfit's score,
     label 0 for the corrupted negative's score, across sampled outfits."""
     model.eval()
@@ -329,8 +354,10 @@ def evaluate(model, dataset, category_pool, device, max_outfits=None, use_attrib
         neg_nodes = make_negative_sample(dataset, nodes, category_pool, idx)
         if neg_nodes is None:
             continue
-        buf_pos.append(dataset.build_graph(nodes, 0.0, use_attributes=use_attributes))
-        buf_neg.append(dataset.build_graph(neg_nodes, 0.0, use_attributes=use_attributes))
+        buf_pos.append(dataset.build_graph(nodes, 0.0, use_attributes=use_attributes,
+                                           attr_mask=attr_mask))
+        buf_neg.append(dataset.build_graph(neg_nodes, 0.0, use_attributes=use_attributes,
+                                           attr_mask=attr_mask))
         if len(buf_pos) >= eval_bs:
             flush()
     flush()
@@ -365,6 +392,10 @@ def main():
                         help="Ablation: train on CLIP+colour only with scalar category edges "
                              "(disables the Module 1 attribute node features and fashion-theory "
                              "edge features).")
+    parser.add_argument("--attr_subset", action="store_true",
+                        help="Ablation: keep only the reliable attr dims (silhouette one-hot + "
+                             "the 7 scalars), dropping the noisy CLIP zero-shot pattern/fabric/fit "
+                             "one-hots. Edges stay 5-D. Cannot combine with --no_attributes.")
     args = parser.parse_args()
 
     model = train(args)
@@ -380,10 +411,17 @@ def main():
             cache_path=os.path.join(args.checkpoint_dir, "category_pool_test.pkl"),
         )
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
+    use_attributes = not args.no_attributes
+    attr_mask = resolve_attr_mask(args, use_attributes)
     set_seed(args.seed)  # identical test negative-sampling across ablation arms
     test_auc = evaluate(model, test_ds, pool, device,
-                        use_attributes=not args.no_attributes)
-    tag = "no_attributes" if args.no_attributes else "with_attributes"
+                        use_attributes=use_attributes, attr_mask=attr_mask)
+    if args.no_attributes:
+        tag = "no_attributes"
+    elif args.attr_subset:
+        tag = "attr_subset"
+    else:
+        tag = "with_attributes"
     print(f"[FINAL] Test AUC on official split.mat testids ({tag}): {test_auc:.4f}")
 
 

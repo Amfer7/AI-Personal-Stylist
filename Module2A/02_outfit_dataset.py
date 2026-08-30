@@ -174,6 +174,19 @@ def encode_node_attributes(attr):
     ]).astype(np.float32)
 
 
+def attr_subset_indices():
+    """Indices into the NODE_ATTR_DIM vector to KEEP for the `--attr_subset` ablation.
+
+    Keeps the *reliable* signals -- the pixel-derived silhouette one-hot and the 7 scalars
+    (formality + colour hue/sat/val + silhouette extent/aspect) -- and drops the noisiest,
+    CLIP-zero-shot categorical one-hots (pattern / fabric / fit). Tests whether the clean
+    attributes help the compatibility score even though the full 26-D set hurts it."""
+    keep = list(range(len(SILHOUETTES)))                       # silhouette one-hot: 0..3
+    scalar_start = len(SILHOUETTES) + len(PATTERNS) + len(FABRICS) + len(FITS)
+    keep += list(range(scalar_start, scalar_start + 7))        # the 7 scalars: 19..25
+    return keep
+
+
 def build_node_from_meta(outfit_dir, g):
     """Builds a single node dict (embedding + colour hist + attribute features + the raw
     scalars needed for edge features) from one garment's metadata entry."""
@@ -334,17 +347,24 @@ class OutfitDataset(Dataset):
         return [build_node_from_meta(outfit_dir, g) for g in garments]
 
     @staticmethod
-    def build_graph(nodes, fashion_score, use_attributes=True):
+    def build_graph(nodes, fashion_score, use_attributes=True, attr_mask=None):
         """Builds a graph from a list of node dicts.
 
         use_attributes=True  (default): node x_i = [512 CLIP | 32 colour | 26 attrs] (570),
                                         edge e_ij = 5-D fashion-theory cues.
         use_attributes=False (ablation): node x_i = [512 CLIP | 32 colour] (544),
                                         edge e_ij = [category weight] (1-D) -- the original
-                                        baseline before the attribute integration."""
+                                        baseline before the attribute integration.
+        attr_mask (list of int, optional): when use_attributes, keep only these columns of
+                                        the 26-D attr vector (the `--attr_subset` ablation).
+                                        Edges stay 5-D so only the node attrs are ablated."""
         N = len(nodes)
         if use_attributes:
-            feats = [np.concatenate([n["embedding"], n["colour"], n["attr_feat"]]) for n in nodes]
+            if attr_mask is not None:
+                feats = [np.concatenate([n["embedding"], n["colour"], n["attr_feat"][attr_mask]])
+                         for n in nodes]
+            else:
+                feats = [np.concatenate([n["embedding"], n["colour"], n["attr_feat"]]) for n in nodes]
         else:
             feats = [np.concatenate([n["embedding"], n["colour"]]) for n in nodes]
         x = torch.tensor(np.stack(feats), dtype=torch.float32)
