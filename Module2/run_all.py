@@ -1,7 +1,7 @@
 """
 run_all.py
 ==========
-Local runner for the Module 2A pipeline (replaces fashion144k_sample1.ipynb).
+Local runner for the Module 2 pipeline (replaces fashion144k_sample1.ipynb).
 
 No Colab, no Google Drive, no external repo clone -- it imports Module 1 from the
 sibling ../Module1 folder and runs everything on the local GPU.

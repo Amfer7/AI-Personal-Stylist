@@ -16,12 +16,12 @@ The system has two halves:
 - **Module 1 — Perception.** Looks at a photo and turns each garment into numbers a computer
   can reason about (a "fingerprint" per garment, plus described attributes like colour and
   formality).
-- **Module 2A — Compatibility.** Takes those numbers, treats the outfit as a **graph**
+- **Module 2 — Compatibility.** Takes those numbers, treats the outfit as a **graph**
   (garments = dots, relationships = lines), and trains a model to score how harmonious the
   outfit is.
 
 ```
-Photo ──▶ [Module 1: Perception] ──▶ per-garment numbers ──▶ [Module 2A: GNN] ──▶ compatibility score
+Photo ──▶ [Module 1: Perception] ──▶ per-garment numbers ──▶ [Module 2: GNN] ──▶ compatibility score
 ```
 
 **Two key AI models used throughout:**
@@ -113,9 +113,9 @@ This exact layout is the "contract" Module 2 relies on.
 
 ---
 
-## Module 2A — Compatibility (scoring how well an outfit works)
+## Module 2 — Compatibility (scoring how well an outfit works)
 
-Module 2A trains a model on **Fashion144K** — a public dataset of ~144,000 real outfit photos,
+Module 2 trains a model on **Fashion144K** — a public dataset of ~144,000 real outfit photos,
 each with a crowd-sourced **fashionability score (1–10)** and official train/validation/test
 splits. It has three scripts (numbered in run order) plus helpers.
 
@@ -185,8 +185,7 @@ and the guessed fabric/fit are noisy. Decision on keeping them is separate.)
 - `build_feature_store.py` — the one-time precompute (see below).
 - `run_all.py` — a simple local runner that ties Steps 1–3 together with sensible defaults
   (replaces the old Colab notebook `fashion144k_sample1.ipynb`).
-- `MODULE2A.md` — detailed documentation of Module 2A and every change made to it.
-- `plan.md` — the performance-optimisation plan and its status.
+- `miniREADME.md` — the full Module 2 story: design, every change made, optimisations, and results.
 
 ---
 
@@ -238,7 +237,7 @@ plain terms.
   Module 2 didn't break. A short-lived attempt to speed up segmentation with **fp16** (half-
   precision maths) was **reverted** after it caused errors; we kept only the safe speedups.
 
-### Module 2A — made it local, attribute-aware, and much faster
+### Module 2 — made it local, attribute-aware, and much faster
 - **Originally:** it was a **Colab notebook** that cloned a *different* external repo, ran on
   Google Drive paths, and trained the GNN using only the CLIP embedding + a colour histogram,
   with hand-set edge weights. Training processed one outfit at a time and re-read image files on
