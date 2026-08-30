@@ -1,0 +1,23 @@
+# ── Datasets / large data — NEVER commit ──
+Fashion144k_v1/
+**/outputs/
+**/feature_store/
+*.npy
+*.npz
+*.pt
+*.mat
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# ── Notebooks ──
+.ipynb_checkpoints/
+
+# ── Non-code project files ──
+*.pdf
+image.png
