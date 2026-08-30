@@ -13,7 +13,7 @@ Usage (Colab):
         --split_mat   /content/drive/MyDrive/Fashion144k/split.mat \
         --relvotes_mat /content/drive/MyDrive/Fashion144k/relvotes.mat \
         --checkpoint_dir /content/drive/MyDrive/Fashion144k/gnn_checkpoints \
-        --epochs 5 --grad_accum 16 --lr 1e-4
+        --epochs 5 --lr 1e-4
 """
 
 import os
@@ -140,11 +140,25 @@ def make_negative_sample(dataset, nodes, category_pool, current_idx):
     swap_i = random.randrange(N)
     cat = nodes[swap_i]["category"]
 
-    candidates = [c for c in category_pool.get(cat, []) if c[0] != current_idx]
-    if not candidates:
-        return None  # no valid substitute available for this category
+    # Rejection sampling instead of materialising a filtered copy of the whole pool.
+    # The old `[c for c in pool if c[0] != current_idx]` was O(pool size) *per negative*;
+    # with full-data pools (~100k) that starved the GPU (3% util, ~27 min/epoch). Picking a
+    # random candidate and retrying only on the rare same-outfit collision is O(1) amortised
+    # and draws from the identical distribution (uniform over same-category garments not in
+    # the current outfit).
+    pool = category_pool.get(cat)
+    if not pool:
+        return None  # no garments of this category anywhere
+    sub = None
+    for _ in range(8):
+        cand = random.choice(pool)
+        if cand[0] != current_idx:
+            sub = cand
+            break
+    if sub is None:
+        return None  # pool is (almost) entirely this outfit -- effectively no substitute
 
-    sub_idx, sub_filename = random.choice(candidates)
+    sub_idx, sub_filename = sub
     try:
         sub_node = dataset.build_node(sub_idx, sub_filename, broad_category=cat)
     except (KeyError, StopIteration, FileNotFoundError):
@@ -166,10 +180,6 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def bpr_loss(pos_score, neg_score, weight):
-    return -weight * F.logsigmoid(pos_score - neg_score)
-
-
 def train(args):
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
     print(f"[INFO] device = {device}")
@@ -178,6 +188,12 @@ def train(args):
 
     split = load_split(args.split_mat)
     relvotes = load_relvotes(args.relvotes_mat)
+
+    # Pilot runs: cap the number of *train* outfits (deterministic first-N slice, so it is
+    # reproducible across seeds). Val/test are left full so the reported AUC is still honest.
+    if args.limit_train is not None:
+        split["train"] = split["train"][:args.limit_train]
+        print(f"[INFO] PILOT: capping train set to first {len(split['train'])} outfit ids")
 
     use_attributes = not args.no_attributes
     print(f"[INFO] use_attributes = {use_attributes} "
@@ -337,11 +353,11 @@ def main():
                         help="Negatives sampled per positive outfit (Tier 3)")
     parser.add_argument("--val_eval_max", type=int, default=1000,
                         help="Max val outfits sampled for the per-epoch AUC (Tier 3)")
-    parser.add_argument("--grad_accum", type=int, default=16,
-                        help="[legacy] unused with batched training; kept for compatibility")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=42, help="RNG seed for reproducible runs")
+    parser.add_argument("--limit_train", type=int, default=None,
+                        help="Pilot runs: use only the first N train outfits (val/test stay full)")
     parser.add_argument("--feature_store", default=None,
                         help="Path to a prebuilt feature store dir (build_feature_store.py). "
                              "If set, training reads features from the memmap instead of PNG/npy.")

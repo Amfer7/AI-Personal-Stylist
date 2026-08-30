@@ -53,6 +53,14 @@ DEFAULT_MODULE1_DIR = os.path.abspath(
 
 
 def main():
+    # Fashion144K has non-ASCII filenames (e.g. Polish 'ń'). On Windows, printing them to a
+    # piped/redirected stdout defaults to cp1252 and crashes. Force UTF-8 with errors=replace.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--module1_dir", default=DEFAULT_MODULE1_DIR,
                          help="Path to the local Module1/ folder (default: sibling ../Module1)")
@@ -116,7 +124,7 @@ def main():
         image_path = os.path.join(args.images_dir, filename)
 
         if not os.path.exists(image_path):
-            with open(args.fail_log, "a") as f:
+            with open(args.fail_log, "a", encoding="utf-8") as f:
                 f.write(f"{idx}\tMISSING_FILE\t{filename}\n")
             append_checkpoint(args.checkpoint, idx)  # don't retry forever
             continue
@@ -129,7 +137,7 @@ def main():
                 device=args.device,
             )
             if result["num_garments"] == 0:
-                with open(args.fail_log, "a") as f:
+                with open(args.fail_log, "a", encoding="utf-8") as f:
                     f.write(f"{idx}\tNO_GARMENTS\t{filename}\n")
             else:
                 extract_folder_embeddings(
@@ -138,7 +146,7 @@ def main():
                     device=args.device,
                 )
         except Exception as e:
-            with open(args.fail_log, "a") as f:
+            with open(args.fail_log, "a", encoding="utf-8") as f:
                 f.write(f"{idx}\tEXCEPTION\t{filename}\t{repr(e)}\n")
                 f.write(traceback.format_exc() + "\n")
             append_checkpoint(args.checkpoint, idx)  # mark seen so we don't loop forever

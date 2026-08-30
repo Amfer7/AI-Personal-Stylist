@@ -312,7 +312,6 @@ class OutfitDataset(Dataset):
 
     def build_pool(self, indices):
         """broad_category -> [(outfit_idx, filename)] over the given indices (store-backed)."""
-        from collections import defaultdict
         pool = defaultdict(list)
         for idx in indices:
             for e in self.store["outfits"][str(idx)]:

@@ -104,3 +104,72 @@ Across dozens of tweak-runs this is the difference between days and an afternoon
 ## Done-when
 All four tiers merged, parity verified, `MODULE2A.md` updated, and a full-data training run
 completes in minutes so parameter sweeps are practical.
+
+---
+
+# Execution log — full-scale run on Fashion144K (local Windows / RTX, 2026-08)
+
+Everything above (Tiers 0–3) was designed and parity-checked on a 5k/10k pilot. This section
+records what happened when the pipeline was actually run end-to-end on the **full 144,169-outfit
+dataset**, plus the fixes that only the full scale surfaced.
+
+## Windows / local port (prior work, pre-full-run)
+- **Unicode stdout fix** (`01_segment_batch.py`): Fashion144K has non-ASCII filenames (e.g.
+  Polish `ń`). On Windows a piped/redirected stdout defaults to cp1252 and crashes mid-run;
+  now `stdout`/`stderr` are reconfigured to UTF-8 (`errors=replace`) and all fail-log writes
+  use `encoding="utf-8"`. This is what the "Unicode-fixed" segmentation restart refers to.
+- **SegFormer-only fp16 autocast** (`Module1/fashion_segmenter.py`): re-introduced `torch.no_grad(),
+  _amp(dev)` around the SegFormer forward *only* (fp32 model → real speedup), casting
+  `outputs.logits.float()` before interpolate. Scoped to SegFormer so it does **not** touch the
+  CLIP paths that caused the earlier `float != Half` incident (see Tier 0).
+
+## Stage 1 — Full segmentation  ✅ DONE
+- Ran `01_segment_batch.py` over all 144,169 photos (resumable checkpoint). **144,169/144,169
+  completed**, 16 failures (~0.01%: missing files / no-garment images). Throughput ~8–9 img/s.
+- Outputs at `Fashion144k_v1/outputs/<idx>/` (SegFormer crops + CLIP `.npy` + `metadata.json`).
+
+## Stage 2 — Full feature store  ✅ DONE
+- `build_feature_store.py` over the full outputs → **480,079 garment rows × 570** (512 CLIP +
+  32 colour + 26 attr), ~1.04 GB `features.npy` + `node_scalars.npy` + 42.6 MB `index.json`.
+- **Consistency verified**: `index.num_rows == features rows == node_scalars rows == rows listed
+  in index == 480,079`, over **144,169 outfits**, row_dim 570. Safe to train on.
+- **Gotcha:** a first build died silently (0-byte log, no traceback) leaving a *fresh 480k
+  `features.npy` paired with a stale 5k `index.json`* — an unusable mismatch. Root cause: the
+  1 GB memmap sits inside a **OneDrive-synced** folder; sync can lock/kill the file mid-write.
+  Re-running with unbuffered output (`python -u`) completed cleanly. **Recommendation:** build
+  the store to a local, non-OneDrive path for heavy/repeated runs.
+
+## Stage 3 — GNN training at full scale  ✅ DONE (with attributes)
+### Perf bug found only at full scale: negative sampling was O(pool) per negative
+- Symptom: **~27 min/epoch, GPU at 3% util** (CPU-bound). The store+batching made the GPU work
+  trivial, so nothing hid the CPU cost anymore.
+- Cause: `make_negative_sample` did `[c for c in category_pool[cat] if c[0] != idx]` — a full
+  scan/copy of the category pool **per negative**. At full scale pools are ~100k (`accessory`
+  114,241), so each of `batch×num_negatives` draws scanned ~100k entries. The 5k/10k pilots
+  never exercised this (pools ~8.6× smaller, ~75× cheaper total), so Tiers 0–3 missed it.
+- Fix: **rejection sampling** — pick a random pool entry, retry only on the rare same-outfit
+  collision. O(1) amortised, identical draw distribution. → **~1 min/epoch, ~27× faster**,
+  GPU util up, and val/test AUC preserved.
+
+### Results (10 epochs, batch 64, num_negatives 4, lr 1e-4, seed 42, best-val checkpointing)
+| Run | usable train | best val AUC | **test AUC** (official 43,250 testids) |
+|---|---|---|---|
+| 10k pilot (`--limit_train 10000`), with attrs | 9,624 | 0.6874 (ep4) | **0.6673** |
+| **Full, with attrs** | 83,352 | 0.7784 (ep6) | **0.7780** |
+| Full, no attrs (ablation) | 83,352 | _running_ | _running_ |
+
+- Full-data run: val ≈ test (0.7784 ≈ 0.7780) → **no overfitting**; +0.11 test AUC over the
+  10k pilot purely from more training data. Whole 10-epoch run ≈ 11 min after the fix.
+
+## Code changes made this session
+- `03_train_gnn.py`: **neg-sampling O(pool)→O(1)** (the fix); removed dead `bpr_loss()`; removed
+  legacy `--grad_accum`; added opt-in `--limit_train N` (pilot cap on train ids; val/test full).
+- `run_all.py`: removed `--grad_accum` passthrough.
+- `02_outfit_dataset.py`: removed a redundant local `defaultdict` import.
+- Left intact deliberately: `item_score`/`per_item` head (unused in loss, but removing it changes
+  the model `state_dict` and would break existing checkpoints).
+
+## Next
+- Finish the **no-attributes ablation** (above) → fill in the row and quantify how much Module 1's
+  attribute + fashion-theory features actually add.
+- Optional: seed-average (42/43/44) both arms for a mean ± spread; then update `MODULE2A.md` §2.
