@@ -71,6 +71,8 @@ def main():
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--no_attributes", action="store_true",
                    help="Ablation: train without Module 1 attribute/fashion-theory features")
+    p.add_argument("--attr_subset", action="store_true",
+                   help="Ablation: keep only reliable attr dims (silhouette+scalars), drop pattern/fabric/fit")
     p.add_argument("--seed", type=int, default=42, help="RNG seed for reproducible training")
     p.add_argument("--feature_store", default=None,
                    help="Path to a prebuilt feature store dir (Tier 1). Speeds up training.")
@@ -123,6 +125,8 @@ def main():
                "--seed", str(args.seed)]
         if args.no_attributes:
             cmd += ["--no_attributes"]
+        if args.attr_subset:
+            cmd += ["--attr_subset"]
         if args.feature_store:
             cmd += ["--feature_store", args.feature_store]
         run(cmd)
