@@ -156,10 +156,15 @@ dataset**, plus the fixes that only the full scale surfaced.
 |---|---|---|---|
 | 10k pilot (`--limit_train 10000`), with attrs | 9,624 | 0.6874 (ep4) | **0.6673** |
 | **Full, with attrs** | 83,352 | 0.7784 (ep6) | **0.7780** |
-| Full, no attrs (ablation) | 83,352 | _running_ | _running_ |
+| **Full, no attrs (ablation)** | 83,352 | 0.7846 (ep9) | **0.7951** |
 
 - Full-data run: val ≈ test (0.7784 ≈ 0.7780) → **no overfitting**; +0.11 test AUC over the
   10k pilot purely from more training data. Whole 10-epoch run ≈ 11 min after the fix.
+- **Ablation verdict (seed 42): baseline BEATS attributes by +0.0171** (0.7951 vs 0.7780).
+  This resolves the §2.6 open question ("attributes may pay off with more data"): they do **not** —
+  the −0.017 gap at 86.5k is consistent with, and slightly wider than, the 5k seed-averaged
+  −0.0128. CLIP already encodes colour/pattern/formality visually; the explicit attributes are
+  redundant and the noisiest (fabric/fit) add variance.
 
 ## Code changes made this session
 - `03_train_gnn.py`: **neg-sampling O(pool)→O(1)** (the fix); removed dead `bpr_loss()`; removed
@@ -170,6 +175,8 @@ dataset**, plus the fixes that only the full scale surfaced.
   the model `state_dict` and would break existing checkpoints).
 
 ## Next
-- Finish the **no-attributes ablation** (above) → fill in the row and quantify how much Module 1's
-  attribute + fashion-theory features actually add.
-- Optional: seed-average (42/43/44) both arms for a mean ± spread; then update `MODULE2A.md` §2.
+- **Done:** no-attributes ablation → baseline wins by +0.0171 (see table above).
+- Optional: seed-average (42/43/44) both arms at full scale to tighten the single-seed −0.017.
+- Optional: test an **attribute subset** (reliable colour/silhouette only, drop noisy
+  fabric/fit/pattern) — may help even though the full attribute set hurts.
+- See `miniREADME.md` for the consolidated end-to-end story.
