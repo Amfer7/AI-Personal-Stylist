@@ -1,0 +1,239 @@
+================================================================================
+MODULE 2 — OUTFIT-COMPATIBILITY GNN: WHAT WE BUILT, HOW IT'S TRAINED, AND THE DEMO
+================================================================================
+My part: explaining how the model is TRAINED and how the DEMO works. The rest is
+here for context — what the module started as, what we changed, and why.
+
+
+--------------------------------------------------------------------------------
+1. WHAT THIS MODULE DOES (one paragraph)
+--------------------------------------------------------------------------------
+Module 1 looks at one photo and, for each garment, gives a 512-D CLIP embedding
+plus attributes (colour, formality, silhouette...). Module 2 takes a whole
+OUTFIT, turns it into a small graph (garments = nodes, "goes-with" links =
+edges), and a GNN scores how well the pieces go together — a compatibility /
+"Harmoniousness" score. Final result: ~0.79–0.80 AUC on the official Fashion144K
+test split.
+
+
+--------------------------------------------------------------------------------
+2. WHAT THE MODULE STARTED AS vs WHAT WE CHANGED
+--------------------------------------------------------------------------------
+It arrived as a Google Colab pipeline (mount Drive, unzip data, clone an external
+repo, run three scripts from a notebook). The model also used an nn.Embedding
+vocabulary lookup for garments.
+
+What we changed and WHY:
+
+  * Colab -> local GPU. Removed all the Drive / notebook / external-repo stuff.
+    Added run_all.py as a plain local runner (stages: segment / train / all).
+    WHY: so we can retrain quickly and repeatedly on our own machine.
+
+  * Dropped nn.Embedding, feed real CLIP vectors instead. The old lookup broke at
+    inference: garments not in the training vocabulary had no valid vector, so
+    train and inference didn't match. Now every garment is its real 512-D CLIP
+    embedding projected by a Linear layer — consistent end to end. WHY: this was
+    the main correctness fix.
+
+  * Fed Module 1's attributes into the graph. Node features widened to 570-D
+    ([512 CLIP | 32 colour histogram | 26 attributes]) and edges carry 5 fashion
+    cues (category-pair weight, hue gap, formality gap, size contrast, same-
+    category flag). WHY: gives the GNN explicit fashion signal instead of only
+    raw CLIP vectors, and downstream modules can reuse these features.
+
+  * Windows fixes for the full run. Forced UTF-8 stdout (Fashion144K has non-ASCII
+    filenames like Polish "ń" that crashed a piped Windows run); made segmentation
+    resumable with a checkpoint + a circuit breaker that stops after 25 failures
+    in a row (so a systemic bug can't silently mark the whole dataset "done").
+
+  * Ablation flags to test if the attributes actually help: --no_attributes
+    (CLIP+colour only), --attr_subset (keep only the reliable attribute dims).
+
+
+--------------------------------------------------------------------------------
+3. THE PIPELINE (four scripts + a runner)
+--------------------------------------------------------------------------------
+  01_segment_batch.py   run Module 1 over every image -> outputs/<idx>/
+  build_feature_store.py precompute all garment features once into one big file
+  02_outfit_dataset.py  turns each outfit into a graph (the library used by 03)
+  03_train_gnn.py       defines + trains the GNN, reports Test AUC
+  run_all.py            local orchestrator (segment / train / all)
+  demo_score.py         loads the trained model and scores outfits (the demo)
+
+
+--------------------------------------------------------------------------------
+4. THE MODEL (short version — just enough to explain training)
+--------------------------------------------------------------------------------
+Each outfit becomes a fully-connected graph of its garments. The model:
+
+  node input [512 CLIP | 32 colour | attrs]
+    -> Linear projection to 128-D
+    -> 2 edge-aware message-passing layers  (each garment updates itself by
+       listening to the others; how much each neighbour counts is learned from
+       the 5-D edge features)
+    -> average all garment vectors into one outfit vector
+    -> small MLP -> ONE compatibility score
+
+That's all you need for training: outfit in, one score out.
+
+
+--------------------------------------------------------------------------------
+5. HOW IT'S TRAINED  (MY MAIN PART)
+--------------------------------------------------------------------------------
+Problem: we have no "these items match / don't match" labels. Fashion144K only
+gives a crowd "fashionability" vote (1–10) per outfit. So we MAKE our own signal.
+
+--- 5a. Positives and negatives (corruption) ----------------------------------
+  POSITIVE = a real outfit, as worn.
+  NEGATIVE = the SAME outfit with exactly ONE garment swapped for a same-category
+             garment taken from a DIFFERENT outfit (a top for another top).
+
+Swapping same-category keeps the outfit valid (still top+bottom+shoes) so the
+ONLY thing that changed is whether that item fits the rest. The model is forced
+to learn compatibility, not "is a top present." We draw several negatives per
+positive (--num_negatives, e.g. 4) for a stronger signal.
+
+--- 5b. The loss (BPR ranking, fashionability-weighted) -----------------------
+We don't ask for an absolute score. We ask: is the real outfit scored HIGHER than
+its corrupted twin? That's BPR (a pairwise ranking loss):
+
+    loss = mean of  -w * log_sigmoid( score(real) - score(corrupted) )
+
+  - It just pushes score(real) above score(corrupted).
+  - w = fashionability / 10. Each pair is WEIGHTED by how liked the real outfit
+    was, so getting popular outfits right matters more. This is how the only
+    label we actually have (the crowd vote) gets used.
+
+Optimiser Adam, lr 1e-4. Each epoch we check validation AUC and keep the
+BEST-validation checkpoint (clip_outfit_gnn_best.pt), not just the last one.
+
+--- 5c. What one training step looks like -------------------------------------
+  1. Take a batch of outfits. For each: load its garment nodes, build the real
+     graph, and build K corrupted graphs (one swap each).
+  2. Pack them into one big batched graph and score everything in a single GPU
+     pass.
+  3. BPR loss on each (real, corrupted) pair, weighted by fashionability.
+  4. Backprop, Adam step. Repeat.
+
+--- 5d. How we measure it (AUC) -----------------------------------------------
+For each test outfit we score the real one (label 1) and a corrupted one
+(label 0), then compute AUC = probability the real one is scored higher than the
+corrupted one. 0.5 = random, 1.0 = perfect. We use the official test split and
+re-seed before testing so every model faces the same corruptions.
+
+--- 5e. How to actually run training ------------------------------------------
+    python 03_train_gnn.py --output_root ../Fashion144k_v1/outputs \
+        --split_mat ../Fashion144k_v1/split.mat \
+        --relvotes_mat ../Fashion144k_v1/feat/relvotes.mat \
+        --checkpoint_dir ../Fashion144k_v1/gnn_checkpoints \
+        --feature_store ../Fashion144k_v1/feature_store \
+        --epochs 10 --batch_size 64 --num_negatives 4 --seed 42
+        # add --attr_subset for the chosen model
+        # add --no_attributes for the CLIP+colour baseline
+        # add --limit_train 10000 for a quick pilot
+A full 10-epoch run is ~11 minutes.
+
+
+--------------------------------------------------------------------------------
+6. THE DEMO  (MY MAIN PART)  — demo_score.py
+--------------------------------------------------------------------------------
+The demo proves the trained model works: a REAL outfit scores higher than the
+same outfit with one garment swapped.
+
+--- 6a. The score is a percentile (important to explain) ----------------------
+BPR trains a RANKING model, so the raw score is only meaningful RELATIVELY (the
+absolute numbers are all large-negative; a plain sigmoid just collapses to ~0).
+So we DON'T show the raw number. Instead we show a Harmoniousness percentile
+(0–100): we first score 500 real test outfits to build a reference distribution,
+then an outfit's score is WHERE IT FALLS in that distribution. Real outfits
+spread across 0–100; corrupting a garment pushes the percentile down. This
+reference is cached to a file so re-runs are instant.
+
+--- 6b. Two demo modes --------------------------------------------------------
+  Aggregate demo: score many test outfits real-vs-corrupted, print a table
+    (real %, corrupted %, did real win?) and the overall "real > corrupted"
+    win-rate, and save a figure. This is the headline "it works" slide.
+
+  Single-photo (end-to-end): point it at one segmented outfit folder; it scores
+    that outfit, also scores a one-swap corrupted version, and renders
+    photo -> detected garments -> Harmoniousness /100 with the "drops to X if one
+    item is swapped" line. This is the live "here's a real example" slide.
+
+It uses the CHOSEN model (attr-subset checkpoint) + the prebuilt feature store,
+so no re-segmentation is needed. There's also a PhotoScorer class that loads the
+model + reference ONCE so the GUI (demo.py) can score new photos instantly.
+
+--- 6c. Running the demo ------------------------------------------------------
+    python demo_score.py \
+        --feature_store ../Fashion144k_v1/feature_store \
+        --split_mat ../Fashion144k_v1/split.mat \
+        --relvotes_mat ../Fashion144k_v1/feat/relvotes.mat \
+        --output_root ../Fashion144k_v1/outputs \
+        --checkpoint ../Fashion144k_v1/ck_attr_subset_s42/clip_outfit_gnn_best.pt \
+        --out compatibility_demo.png
+    # single photo: add --score_dir <a segmented outfit folder> --photo <photo.jpg>
+
+
+--------------------------------------------------------------------------------
+7. THE OPTIMISATIONS (kept short)
+--------------------------------------------------------------------------------
+The goal was to retrain many times cheaply. Three things that mattered:
+
+  1. Feature store. Precompute every garment's features ONCE into one big file
+     (build_feature_store.py). Before this, training re-opened image files and
+     recomputed the colour histogram constantly. After it, training never touches
+     an image. Same numbers -> same results, just faster.
+
+  2. GPU batching. Pack many outfits into one big graph and score them in a
+     single GPU pass instead of one at a time. ~20x faster, same AUC.
+
+  3. Faster negative sampling (the big one at full scale). Picking a random
+     substitute garment used to SCAN the entire category pool to exclude the
+     current outfit — fine on small pilots, but at full scale some pools are
+     ~100k items, so each epoch took ~27 minutes with the GPU stuck at 3%. We
+     switched to "pick a random item, retry only if it's from the same outfit"
+     (rejection sampling): same result, epoch dropped from ~27 min to ~1 min.
+
+Lesson: the store + batching made the GPU fast, which is what finally exposed the
+slow negative sampling that had been hiding behind everything else.
+
+
+--------------------------------------------------------------------------------
+8. RESULT + WHICH MODEL WE SHIP
+--------------------------------------------------------------------------------
+Seed-averaged (42/43/44) on the official test split:
+  Full attributes (26-D) : 0.7860
+  Baseline (no attrs)    : 0.7923
+  Attr subset (11-D)     : 0.8010   <- chosen
+
+It's basically a statistical tie (per-seed noise is bigger than the gaps). The
+one solid finding: the full 26-D attribute set is the worst on every seed — the
+noisy pattern/fabric/fit tags (which come from CLIP zero-shot, so they're partly
+redundant with the CLIP embedding) never help.
+
+We ship ATTR-SUBSET because it's tied-best on AUC AND it keeps the clean,
+interpretable attributes + fashion-theory edges that Modules 3–4 need — at zero
+accuracy cost. (An earlier single-seed result claimed the baseline won; averaging
+three seeds showed that was just a lucky seed. Lesson: don't trust a single seed
+at this noise level.)
+================================================================================
+
+
+A one-hot over the garment's shape:
+1. fitted
+2. boxy
+3. a_line
+4. tapered
+
+The 7 scalar dims (indices 19–25)
+
+Continuous, pixel/geometry/colour-derived signals:
+5. formality_score (normalized /100)
+6. hue sin (sin(hue) — circular colour encoding)
+7. hue cos (cos(hue) — circular colour encoding)
+8. saturation
+9. value (brightness)
+10. extent (how much of the bounding box the garment fills)
+11. aspect_ratio (clamped min(aspect/4, 1))
+
+Human filtering for images. Catch for exceptions. 

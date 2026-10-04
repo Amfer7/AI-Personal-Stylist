@@ -231,6 +231,55 @@ analysis) need — at **zero measured accuracy cost**. The full 26-D set is neve
   orthogonal signal the CLIP embedding lacks — the one attribute avenue with real upside left.
   Scoped as future work; needs no re-segmentation (run the tagger over saved crops, rebuild store).
 
+### 6.4 Raising AUC above ~0.80 — ranked levers to try
+
+**Framing first (important):** our own seed-averaged results (§6.1) show the between-arm gaps are
+smaller than per-seed noise, so **~0.80 is close to the ceiling of the task *as currently
+defined*.** That ceiling is set mostly by the **negative sampler**, not the model — so the biggest
+levers attack the negatives/eval, not the architecture. Ranked cheapest-and-most-likely first:
+
+**A. The negative definition sets the ceiling (biggest conceptual lever).**
+Our AUC only measures "real outfit vs. same outfit with **one random same-category swap**." Two
+consequences: (1) many negatives are **false negatives** — a random top-for-top swap is often
+*equally compatible*, so those pairs are unrankable by construction and cap AUC well below 1.0;
+(2) random swaps are **easy**, so the training signal is weak. Experiments:
+  - **Hard-negative mining** (`make_negative_sample`): sample K candidate swaps, score all K with
+    the *current* model, keep the **hardest** (highest-scoring) negative instead of using all K.
+    Reuses the existing `--num_negatives` machinery. *Most likely to raise real discrimination.*
+  - **Fashionability-constrained negatives:** corrupt only high-vote outfits, draw substitutes from
+    *low*-vote outfits → fewer tie pairs, more meaningful "real > corrupted" gap.
+  - Evaluate against a **fixed, cached** negative set (not re-sampled per seed) so AUC stops moving
+    under noise and arms become comparable.
+
+**B. Cheap training-recipe wins (~30 min total, full run is ~11 min).**
+  - **L2-normalize the CLIP embeddings** before the input projection — CLIP vectors are meant to be
+    unit-norm; if the store holds raw vectors this is a free, stabilising bump. *Check this first.*
+  - **AdamW (`weight_decay≈1e-4`) + cosine LR schedule + warmup**; sweep `lr ∈ {1e-4, 3e-4, 5e-4}`.
+    Current plain Adam at `1e-4`/10 epochs may be undertrained.
+  - **More negatives per step** (`--num_negatives 8–16`) — nearly free given batching; BPR loves it.
+  - **More epochs (20–30)** with the schedule; best-val checkpointing already guards overfitting
+    (and the subset's val AUC was *still climbing* at epoch 10, §6.3).
+
+**C. Architecture levers (moderate effort).**
+  - **Richer readout:** concat **mean ‖ max** pool, or an attention-weighted readout, instead of
+    plain mean-pool → outfit score.
+  - **Use the unused `per_item` head for an explicit pairwise term:** score the outfit as
+    `pooled MLP + Σ_{i<j} f(h_i, h_j)` (classic type-aware / pairwise compatibility). Aligns the
+    model with "do these pieces go together" far better than a single pooled MLP.
+  - 3 layers / wider hidden: expect little — graphs are tiny (2–8 fully-connected nodes), 2 layers
+    already reach every node.
+
+**D. Feature pruning (already partly done).** §6.1 shows the full 26-D attrs *hurt*; we already ship
+`--attr_subset`. Worth an ablation: drop the 32-D colour histogram too (CLIP likely encodes colour).
+
+**Recommended order:** (1) L2-normalize CLIP, (2) AdamW+cosine + lr sweep + more epochs,
+(3) hard-negative mining, (4) mean‖max readout or pairwise term. Steps 1–2 are low-risk ~30 min;
+step 3 is where the real jump should come, because it attacks the ceiling directly.
+
+**⚠️ Re-baseline caveat:** a higher AUC on a *harder* negative set is **not** comparable to 0.80 on
+the current easy set. If you change the negatives, re-run all arms/seeds so the comparison stays
+honest.
+
 ---
 
 ## 7. Files & how to run

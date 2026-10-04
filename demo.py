@@ -1,31 +1,43 @@
 """
-demo.py  —  one-command live demo for the two completed modules
-===============================================================
-Runs a single photo end-to-end and writes two slide figures into demos/:
+demo.py  —  Gradio GUI for the two completed modules (in-process, models stay warm)
+===================================================================================
+Upload or paste an outfit photo, choose which module to run, and see the result
+figure(s) rendered in the browser:
 
-    <photo>  ->  Module 1 perception (segmentation + attributes)     -> demos/perception_demo.png
-             ->  Module 2 GNN Harmoniousness score (end-to-end)      -> demos/harmoniousness_demo.png
+    Module 1  (perception)     -> segmentation + attributes figure
+    Module 2  (harmoniousness) -> end-to-end GNN Harmoniousness score figure
+    Both                       -> both figures
 
-Usage (from the repo root):
-    python demo.py                       # uses image2.jpg
-    python demo.py path/to/outfit.jpg    # any full-body outfit photo
-    python demo.py --open                # also pop the figures open (Windows)
-    python demo.py --aggregate           # also (re)build the 91.2% real-vs-corrupted testing figure
+Unlike the old CLI, this loads the heavy models (SegFormer + CLIP + the GNN) ONCE
+and reuses them for every request — so the *first* run is slow (model load) and
+every run after that is fast. It imports the pipeline functions directly instead of
+shelling out per click.
+
+Run (from the repo root):
+    pip install gradio      # one-time
+    python demo.py          # opens the GUI in your browser
 
 Notes:
-    - First run builds a small reference cache (demos/_ref_scores.json); later runs are instant.
-    - Assumes the trained checkpoint + feature store are present under Fashion144k_v1/
-      (they are on the training machine). Everything else is derived automatically.
+    - Module 2 needs Module 1's segmentation output, so picking "Module 2" runs
+      Module 1 first, then scores.
+    - First Module-2 run builds a small reference cache (demos/_ref_scores.json);
+      later runs load it instantly.
+    - Assumes the trained checkpoint + feature store are present under Fashion144k_v1/.
 """
 
 import os
 import sys
 import time
-import argparse
-import subprocess
+import importlib.util
+
+import gradio as gr
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PY = sys.executable
+MOD1 = os.path.join(HERE, "Module1")
+MOD2 = os.path.join(HERE, "Module2")
+# Module1/run_pipeline.py imports its siblings by bare name; make sure they resolve.
+if MOD1 not in sys.path:
+    sys.path.insert(0, MOD1)
 
 DATA = os.path.join(HERE, "Fashion144k_v1")
 DEMO_OUT = os.path.join(DATA, "demo_out")
@@ -33,74 +45,133 @@ DEMOS = os.path.join(HERE, "demos")
 CKPT = os.path.join(DATA, "ck_attr_subset_s42", "clip_outfit_gnn_best.pt")
 REF_CACHE = os.path.join(DEMOS, "_ref_scores.json")
 
+IMAGE_ID = "demo_live"
+EXAMPLE_PHOTO = os.path.join(HERE, "image2.jpg")
 
-def stage(msg):
-    print("\n" + "=" * 70 + f"\n>> {msg}\n" + "=" * 70)
-
-
-def run(cmd):
-    r = subprocess.run(cmd)
-    if r.returncode != 0:
-        sys.exit(f"[demo] step failed ({r.returncode}): {' '.join(map(str, cmd))}")
+MODULE_1 = "Module 1 (perception)"
+MODULE_2 = "Module 2 (harmoniousness)"
+BOTH = "Both"
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("photo", nargs="?", default=os.path.join(HERE, "image2.jpg"),
-                    help="Outfit photo to demo (default: image2.jpg)")
-    ap.add_argument("--device", default=None, help="'cuda' or 'cpu' (default: auto)")
-    ap.add_argument("--open", action="store_true", help="Open the figures when done (Windows)")
-    ap.add_argument("--aggregate", action="store_true",
-                    help="Also rebuild the aggregate real-vs-corrupted testing figure")
-    args = ap.parse_args()
+def _load_module(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
-    if not os.path.exists(args.photo):
-        sys.exit(f"[demo] photo not found: {args.photo}")
+
+# ---- lazy, load-once singletons (heavy models) ----
+_pipeline = None   # (run_single_image, render)
+_scorer = None     # demo_score.PhotoScorer
+
+
+def _get_pipeline():
+    """Module 1: run_single_image() + the perception-figure render(). The underlying
+    SegFormer/CLIP models cache themselves in their own module globals, so importing
+    once means they load once."""
+    global _pipeline
+    if _pipeline is None:
+        rp = _load_module(os.path.join(MOD1, "run_pipeline.py"), "m1_run_pipeline")
+        rd = _load_module(os.path.join(MOD1, "render_perception_demo.py"), "m1_render")
+        _pipeline = (rp.run_single_image, rd.render)
+    return _pipeline
+
+
+def _get_scorer():
+    """Module 2: PhotoScorer loads the GNN + dataset + reference distribution once."""
+    global _scorer
+    if _scorer is None:
+        ds_mod = _load_module(os.path.join(MOD2, "demo_score.py"), "m2_demo_score")
+        _scorer = ds_mod.PhotoScorer(checkpoint=CKPT, ref_cache=REF_CACHE)
+    return _scorer
+
+
+def analyze(image_path, module, device):
+    """Run the requested module(s) on one photo and return
+    (perception_png_or_None, harmony_png_or_None, log_text)."""
+    if not image_path:
+        return None, None, "Please upload or paste an outfit photo first."
     if not os.path.exists(CKPT):
-        sys.exit(f"[demo] trained checkpoint missing: {CKPT}")
-    os.makedirs(DEMOS, exist_ok=True)
+        return None, None, f"Trained checkpoint missing: {CKPT}"
 
-    image_id = "demo_live"
-    outfit_dir = os.path.join(DEMO_OUT, image_id)
+    os.makedirs(DEMOS, exist_ok=True)
+    outfit_dir = os.path.join(DEMO_OUT, IMAGE_ID)
     perception_png = os.path.join(DEMOS, "perception_demo.png")
     harmony_png = os.path.join(DEMOS, "harmoniousness_demo.png")
+
+    want_perception = module in (MODULE_1, BOTH)
+    want_harmony = module in (MODULE_2, BOTH)
+    dev = None if (not device or device == "auto") else device
+
+    log = []
     t0 = time.time()
+    try:
+        run_single_image, render = _get_pipeline()
 
-    stage(f"1/3  Module 1 — perception on {os.path.basename(args.photo)}")
-    cmd = [PY, os.path.join(HERE, "Module1", "run_pipeline.py"),
-           "--image", args.photo, "--image_id", image_id, "--output_dir", DEMO_OUT]
-    if args.device:
-        cmd += ["--device", args.device]
-    run(cmd)
+        # Always run Module 1: both the perception figure and the scorer read its output.
+        log.append(f">> Module 1 — perception on {os.path.basename(image_path)}")
+        res = run_single_image(image_path=image_path, image_id=IMAGE_ID,
+                               output_root=DEMO_OUT, device=dev)
+        log.append(f"   {res['num_garments']} garments, "
+                   f"{res['num_embeddings']} embeddings in {res['elapsed_seconds']}s")
 
-    stage("2/3  render perception figure")
-    run([PY, os.path.join(HERE, "Module1", "render_perception_demo.py"),
-         "--outfit_dir", outfit_dir, "--photo", args.photo, "--out", perception_png])
+        perception_out = None
+        if want_perception:
+            render(outfit_dir, image_path, perception_png)
+            perception_out = perception_png
 
-    stage("3/3  Module 2 — GNN Harmoniousness score")
-    run([PY, os.path.join(HERE, "Module2", "demo_score.py"),
-         "--score_dir", outfit_dir, "--photo", args.photo,
-         "--ref_cache", REF_CACHE, "--out", harmony_png])
+        harmony_out = None
+        if want_harmony:
+            log.append(">> Module 2 — GNN Harmoniousness score")
+            scorer = _get_scorer()
+            score, corr = scorer.score_photo(outfit_dir, image_path, harmony_png)
+            log.append(f"   Harmoniousness = {score:.0f}/100"
+                       + (f"   (drops to {corr:.0f}/100 if one garment is swapped)"
+                          if corr is not None else ""))
+            harmony_out = harmony_png
 
-    if args.aggregate:
-        stage("extra  aggregate real-vs-corrupted testing figure")
-        run([PY, os.path.join(HERE, "Module2", "demo_score.py"),
-             "--out", os.path.join(DEMOS, "compatibility_demo.png")])
+        log.append(f">> done in {time.time() - t0:.1f}s")
+        return perception_out, harmony_out, "\n".join(log)
+    except Exception as e:
+        import traceback
+        log.append("\n[error] " + str(e))
+        log.append(traceback.format_exc())
+        return None, None, "\n".join(log)
 
-    outputs = [perception_png, harmony_png]
-    if args.aggregate:
-        outputs.append(os.path.join(DEMOS, "compatibility_demo.png"))
 
-    stage(f"done in {time.time() - t0:.1f}s")
-    for p in outputs:
-        print("   ->", p)
-    if args.open:
-        for p in outputs:
-            try:
-                os.startfile(p)  # Windows
-            except AttributeError:
-                subprocess.run(["xdg-open", p])
+def build_ui():
+    with gr.Blocks(title="Outfit Compatibility Demo") as ui:
+        gr.Markdown(
+            "# Outfit Compatibility Demo\n"
+            "Upload or paste a full-body outfit photo, choose which module to run, "
+            "then click **Run**.\n\n"
+            "- **Module 1 (perception)** — segments the photo into garments and reads "
+            "their attributes (colour, pattern, formality, …).\n"
+            "- **Module 2 (harmoniousness)** — runs Module 1, then scores the outfit "
+            "0–100 with the trained GNN (also shows the drop if one garment is swapped).\n"
+            "- **Both** — shows both figures.\n\n"
+            "> The **first** run loads the models (~30–60s); every run after that is fast."
+        )
+        with gr.Row():
+            with gr.Column(scale=1):
+                image = gr.Image(sources=["upload", "clipboard"], type="filepath",
+                                 label="Outfit photo (upload or paste)")
+                module = gr.Radio([MODULE_1, MODULE_2, BOTH], value=BOTH,
+                                  label="Which module to run")
+                device = gr.Radio(["auto", "cuda", "cpu"], value="auto", label="Device")
+                run_btn = gr.Button("Run", variant="primary")
+                if os.path.exists(EXAMPLE_PHOTO):
+                    gr.Examples(examples=[[EXAMPLE_PHOTO]], inputs=[image],
+                                label="Example (image2.jpg)")
+            with gr.Column(scale=2):
+                perception_img = gr.Image(label="Module 1 — perception", type="filepath")
+                harmony_img = gr.Image(label="Module 2 — harmoniousness", type="filepath")
+                log = gr.Textbox(label="Log", lines=8)
+
+        run_btn.click(analyze, inputs=[image, module, device],
+                      outputs=[perception_img, harmony_img, log])
+    return ui
 
 
 if __name__ == "__main__":
-    main()
+    build_ui().launch(inbrowser=True)

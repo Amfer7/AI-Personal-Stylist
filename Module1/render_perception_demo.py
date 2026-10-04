@@ -43,30 +43,25 @@ def _caption(g):
     return "\n".join(parts)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--outfit_dir", required=True, help="Folder with metadata.json + garment *.png")
-    ap.add_argument("--photo", default=None, help="Original input photo (optional, shown at left)")
-    ap.add_argument("--out", default="perception_demo.png")
-    args = ap.parse_args()
-
-    garments = json.load(open(os.path.join(args.outfit_dir, "metadata.json")))
+def render(outfit_dir, photo=None, out="perception_demo.png"):
+    """Compose the perception slide from a Module 1 output folder. Returns `out`."""
+    garments = json.load(open(os.path.join(outfit_dir, "metadata.json")))
     n = len(garments)
-    ncols = n + (1 if args.photo else 0)
+    ncols = n + (1 if photo else 0)
 
     fig, axes = plt.subplots(1, ncols, figsize=(3.0 * ncols, 4.4))
     if ncols == 1:
         axes = [axes]
 
     col = 0
-    if args.photo:
-        axes[col].imshow(Image.open(args.photo).convert("RGB"))
+    if photo:
+        axes[col].imshow(Image.open(photo).convert("RGB"))
         axes[col].set_title("Input photo", fontsize=11, fontweight="bold")
         axes[col].axis("off")
         col += 1
 
     for g in garments:
-        crop = _on_white(os.path.join(args.outfit_dir, g["file"]))
+        crop = _on_white(os.path.join(outfit_dir, g["file"]))
         axes[col].imshow(crop)
         axes[col].set_title(_caption(g), fontsize=9)
         axes[col].axis("off")
@@ -75,8 +70,19 @@ def main():
     fig.suptitle("Module 1 — Garment Perception: segmentation + attributes",
                  fontsize=13, fontweight="bold")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.savefig(args.out, dpi=150)
-    print(f"[perception] {n} garments -> wrote {args.out}")
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"[perception] {n} garments -> wrote {out}")
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--outfit_dir", required=True, help="Folder with metadata.json + garment *.png")
+    ap.add_argument("--photo", default=None, help="Original input photo (optional, shown at left)")
+    ap.add_argument("--out", default="perception_demo.png")
+    args = ap.parse_args()
+    render(args.outfit_dir, args.photo, args.out)
 
 
 if __name__ == "__main__":

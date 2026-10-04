@@ -27,6 +27,7 @@ Usage:
 
 import os
 import sys
+import json
 import argparse
 from importlib.util import spec_from_file_location, module_from_spec
 
@@ -61,6 +62,85 @@ def raw_score(model, dataset, nodes, attr_mask, device):
     g = dataset.build_graph(nodes, 0.0, use_attributes=True, attr_mask=attr_mask)
     raw, _ = model(g["x"].to(device), g["edge_index"].to(device), g["edge_attr"].to(device))
     return float(raw.item())
+
+
+def _build_reference(model, ds, pool, attr_mask, device, num_eval):
+    """Score up to num_eval real-vs-corrupted test outfits. Returns
+    (ref_sorted, wins, total, mean_raw_margin): the reference distribution that
+    calibrates the 0-100 percentile, plus the aggregate real>corrupted win-rate."""
+    wins = total = 0
+    raw_margins, ref = [], []
+    for idx in ds.valid_indices[:num_eval]:
+        nodes = ds.load_outfit_nodes(idx)
+        neg = tg.make_negative_sample(ds, nodes, pool, idx)
+        if neg is None:
+            continue
+        r = raw_score(model, ds, nodes, attr_mask, device)
+        c = raw_score(model, ds, neg, attr_mask, device)
+        wins += int(r > c)
+        raw_margins.append(r - c)
+        ref.append(r)
+        total += 1
+    ref = np.sort(np.asarray(ref, dtype=np.float64))
+    margin = float(np.mean(raw_margins)) if raw_margins else 0.0
+    return ref, wins, total, margin
+
+
+class PhotoScorer:
+    """Loads the GNN + dataset + reference distribution ONCE, so repeated single-photo
+    scoring is instant. Built for the in-process GUI (demo.py); the CLI still uses main().
+
+    scorer = PhotoScorer(checkpoint=..., ref_cache=...)   # heavy, do once
+    score, corr = scorer.score_photo(outfit_dir, photo, out)   # cheap, per photo
+    """
+
+    def __init__(self,
+                 checkpoint=os.path.join(HERE, "../Fashion144k_v1/ck_attr_subset_s42/clip_outfit_gnn_best.pt"),
+                 split_mat=os.path.join(HERE, "../Fashion144k_v1/split.mat"),
+                 relvotes_mat=os.path.join(HERE, "../Fashion144k_v1/feat/relvotes.mat"),
+                 output_root=os.path.join(HERE, "../Fashion144k_v1/outputs"),
+                 feature_store=os.path.join(HERE, "../Fashion144k_v1/feature_store"),
+                 ref_cache=None, num_eval=500, seed=42, device=None):
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.seed = seed
+        tg.set_seed(seed)
+
+        split = od.load_split(split_mat)
+        relvotes = od.load_relvotes(relvotes_mat)
+        self.ds = od.OutfitDataset(split["test"], output_root, relvotes, feature_store=feature_store)
+        self.pool = self.ds.build_pool(self.ds.valid_indices)
+        self.attr_mask = od.attr_subset_indices()
+
+        self.model = tg.CLIPOutfitGNN(attr_dim=len(self.attr_mask), edge_dim=od.EDGE_ATTR_DIM).to(self.device)
+        self.model.load_state_dict(torch.load(checkpoint, map_location=self.device, weights_only=True))
+        self.model.eval()
+
+        if ref_cache and os.path.exists(ref_cache):
+            self.ref = np.sort(np.asarray(json.load(open(ref_cache)), dtype=np.float64))
+            print(f"[scorer] loaded reference distribution ({len(self.ref)}) from {os.path.basename(ref_cache)}")
+        else:
+            self.ref, wins, total, _ = _build_reference(
+                self.model, self.ds, self.pool, self.attr_mask, self.device, num_eval)
+            print(f"[scorer] reference built: real>corrupted {wins}/{total} = {wins/max(total,1):.1%}")
+            if ref_cache:
+                json.dump(self.ref.tolist(), open(ref_cache, "w"))
+                print(f"[scorer] cached reference distribution -> {ref_cache}")
+
+    def pct(self, raw):  # Harmoniousness percentile (0-100) vs real test outfits
+        return 100.0 * np.searchsorted(self.ref, raw, side="right") / len(self.ref)
+
+    def score_photo(self, score_dir, photo=None, out=os.path.join(HERE, "harmoniousness_demo.png")):
+        """Score one segmented outfit folder end-to-end and render the figure.
+        Returns (score, corr) as 0-100 percentiles (corr is None if no swap was possible)."""
+        garments = json.load(open(os.path.join(score_dir, "metadata.json")))
+        nodes = [od.build_node_from_meta(score_dir, g) for g in garments]
+        raw = raw_score(self.model, self.ds, nodes, self.attr_mask, self.device)
+        score = self.pct(raw)
+        tg.set_seed(self.seed)  # deterministic corruption so live numbers are reproducible
+        neg = tg.make_negative_sample(self.ds, nodes, self.pool, current_idx=-1)
+        corr = self.pct(raw_score(self.model, self.ds, neg, self.attr_mask, self.device)) if neg is not None else None
+        _photo_figure(photo, score_dir, garments, score, corr, out)
+        return score, corr
 
 
 def main():
@@ -101,30 +181,16 @@ def main():
 
     # ---- reference score distribution (calibrates the 0-100 percentile) + aggregate win-rate ----
     # In single-photo mode we can load a cached reference so a live re-run is instant (no 500-outfit pass).
-    import json
     rate = total = None
     if args.score_dir and args.ref_cache and os.path.exists(args.ref_cache):
         ref = np.sort(np.asarray(json.load(open(args.ref_cache)), dtype=np.float64))
         print(f"[demo] loaded reference distribution ({len(ref)} outfits) from "
               f"{os.path.basename(args.ref_cache)}")
     else:
-        wins = total = 0
-        raw_margins, ref = [], []
-        for idx in ds.valid_indices[:args.num_eval]:
-            nodes = ds.load_outfit_nodes(idx)
-            neg = tg.make_negative_sample(ds, nodes, pool, idx)
-            if neg is None:
-                continue
-            r = raw_score(model, ds, nodes, attr_mask, device)
-            c = raw_score(model, ds, neg, attr_mask, device)
-            wins += int(r > c)
-            raw_margins.append(r - c)
-            ref.append(r)
-            total += 1
+        ref, wins, total, margin = _build_reference(model, ds, pool, attr_mask, device, args.num_eval)
         rate = wins / max(total, 1)
-        ref = np.sort(np.asarray(ref, dtype=np.float64))
         print(f"\n[demo] Real > Corrupted on {wins}/{total} test outfits = {rate:.1%} "
-              f"(mean raw margin {np.mean(raw_margins):+.3f})\n")
+              f"(mean raw margin {margin:+.3f})\n")
         if args.ref_cache:  # save for instant future single-photo runs
             json.dump(ref.tolist(), open(args.ref_cache, "w"))
             print(f"[demo] cached reference distribution -> {args.ref_cache}")
@@ -212,6 +278,7 @@ def _figure(rows, rate, total, out_path):
                  fontsize=12, fontweight="bold")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     fig.savefig(out_path, dpi=150)
+    plt.close(fig)
 
 
 def _on_white(png_path):
@@ -264,6 +331,7 @@ def _photo_figure(photo_path, outfit_dir, garments, score, corr, out_path):
                  fontsize=12, fontweight="bold")
     fig.tight_layout(rect=[0, 0, 1, 0.94])
     fig.savefig(out_path, dpi=150)
+    plt.close(fig)
 
 
 if __name__ == "__main__":

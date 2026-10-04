@@ -2,10 +2,14 @@
 Fashion144k_v1/
 **/outputs/
 **/feature_store/
+PinterestLatest/pinterest_dataset/
+PinterestLatest/garment_data*/
 *.npy
 *.npz
 *.pt
 *.mat
+*.f32
+*.pkl
 
 # ── Python ──
 __pycache__/

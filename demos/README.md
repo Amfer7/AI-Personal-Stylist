@@ -1,13 +1,16 @@
 # Demos — completed modules (live)
 
-One command, from the repo root:
+A small **Gradio GUI**, from the repo root:
 
 ```bash
-python demo.py                    # default photo (image2.jpg)
-python demo.py my_outfit.jpg      # any full-body outfit photo
-python demo.py --open             # also pop the figures open
-python demo.py --aggregate        # also rebuild the 91.2% testing figure
+pip install gradio                # one-time
+python demo.py                    # opens the GUI in your browser
 ```
+
+In the browser: **upload or paste** an outfit photo, choose which module to run
+(**Module 1**, **Module 2**, or **Both**), and click **Run**. The figures render inline
+and are also written into this folder. Module 2 needs Module 1's segmentation, so
+picking Module 2 runs Module 1 silently first.
 
 Produces (into this folder):
 
