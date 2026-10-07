@@ -36,9 +36,10 @@ import clip_extract_embeddings as cee
 from trend_model import PerCategoryTrendModel
 
 # Prefer a locally-fitted model; the Drive path is kept for Colab parity.
+_HERE = os.path.dirname(os.path.abspath(__file__))
 MODEL_CANDIDATES = [
-    "per_category_trend_model.pkl",
-    "../PinterestLatest/per_category_trend_model.pkl",
+    os.path.join(_HERE, "per_category_trend_model.pkl"),
+    os.path.join(_HERE, "..", "PinterestData", "per_category_trend_model.pkl"),
     "/content/drive/MyDrive/Poster/per_category_trend_model.pkl",
 ]
 

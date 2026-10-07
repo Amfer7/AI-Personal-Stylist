@@ -34,7 +34,7 @@ driven by a notebook:
 | `01_segment_batch.py` | Stage 1–2: bulk-run Module 1 (SegFormer + CLIP) over all Fashion144K images |
 | `02_outfit_dataset.py` | Stage 3–5: build per-outfit graphs from `outputs/` + Fashion144K `.mat` files |
 | `03_train_gnn.py` | Stage 6–7: define + train the CLIP-native Outfit GNN, evaluate by AUC |
-| `fashion144k_sample1.ipynb` | Colab driver: mount Drive, unzip data, clone external repo, run 01→02→03 |
+| `fashion144k_sample1.ipynb` | Colab driver: mount Drive, unzip data, clone external repo, run 01→02→03 (since removed; replaced by `run_all.py`) |
 
 **Data flow:**
 ```
@@ -291,7 +291,6 @@ honest.
 | `03_train_gnn.py` | `CLIPOutfitGNN`, BPR training, AUC eval, ablation + pilot flags |
 | `build_feature_store.py` | One-time memmap feature store (Tier 1) |
 | `run_all.py` | Local runner (replaces the notebook): `segment` / `train` / `all` |
-| `fashion144k_sample1.ipynb` | Superseded by `run_all.py`; kept for reference |
 
 **Expected dataset layout** (override with `--data_root`):
 ```

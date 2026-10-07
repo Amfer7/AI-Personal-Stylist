@@ -93,7 +93,7 @@ Per garment, `attributes` now looks like:
 - All deterministic attribute tests pass; all files compile; `fashion_segmenter` imports
   with wiring intact.
 - Full CLIP path verified on a synthetic crop and on a **real photo end-to-end**
-  (`image.png`, poolside pink co-ord): 3 garments in ~12 s on CPU incl. model loads.
+  (`samples/image.png`, poolside pink co-ord): 3 garments in ~12 s on CPU incl. model loads.
   - Colour + silhouette were accurate (pinks correct; boxy top / A-line wide-leg pants /
     tapered sandal); the three outfit metrics matched the photo (near-monochrome →
     `top_bottom_hue_distance` 3.3; bottom-heavy → `volume_balance` 23.8).

@@ -2,14 +2,27 @@
 Fashion144k_v1/
 **/outputs/
 **/feature_store/
-PinterestLatest/pinterest_dataset/
-PinterestLatest/garment_data*/
+PinterestData/pinterest_dataset/
+PinterestData/garment_data*/
+Module4/cache/
 *.npy
 *.npz
 *.pt
 *.mat
 *.f32
 *.pkl
+
+# ── Images — NEVER commit (generated figures and sample photos stay local) ──
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.tif
+*.tiff
+*.heic
+samples/
 
 # ── Python ──
 __pycache__/
@@ -24,4 +37,3 @@ venv/
 
 # ── Non-code project files ──
 *.pdf
-image.png

@@ -49,8 +49,8 @@ storm). On finish, the raw float32 file is converted to garment_embeddings.npy.
 Usage:
     # PILOT FIRST — check garment-detection rate and timing on a small --limit:
     python pinterest_garment_segmentation.py \
-        --metadata_csv ../PinterestLatest/pinterest_dataset/metadata.csv \
-        --output_dir   ../PinterestLatest/garment_data \
+        --metadata_csv ../PinterestData/pinterest_dataset/metadata.csv \
+        --output_dir   ../PinterestData/garment_data \
         --limit 1000
 
     # then remove --limit for the full run (resumable if interrupted).

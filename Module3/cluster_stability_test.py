@@ -17,10 +17,13 @@ agreement; ARI near 0 means the clustering is no better than random.
 
 Usage (after running pinterest_garment_segmentation.py):
     python cluster_stability_test.py \
-        --manifest_csv /content/drive/MyDrive/Poster/garment_data/garment_manifest.csv \
-        --embeddings /content/drive/MyDrive/Poster/garment_data/garment_embeddings.npy \
+        --manifest_csv ../PinterestData/garment_data/garment_manifest.csv \
+        --embeddings ../PinterestData/garment_data/garment_embeddings.npy \
         --n_clusters_per_category 15 \
         --n_repeats 5
+
+k per category follows trend_model.k_for_category (so dresses use the k=8
+override), i.e. it tests exactly the clustering the saved model uses.
 """
 
 import argparse
@@ -29,6 +32,8 @@ import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score
+
+from trend_model import k_for_category
 
 
 def stability_test_for_category(
@@ -89,7 +94,7 @@ def run_all_categories(
             print(f"Skipping '{cat}': only {n_images} images (< {min_images})")
             continue
 
-        k = min(n_clusters_per_category, max(2, n_images // 20))
+        k = k_for_category(cat, n_images, n_clusters_per_category)
         print(f"\nTesting category '{cat}' ({n_images} images, k={k})...")
         result = stability_test_for_category(embeddings[mask], n_clusters=k, n_repeats=n_repeats)
         results[cat] = result

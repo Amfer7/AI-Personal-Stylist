@@ -31,6 +31,8 @@ import pandas as pd
 from sklearn.cluster import KMeans
 from scipy.stats import spearmanr
 
+from trend_model import k_for_category
+
 MIN_CLUSTER_IMAGES_FOR_TEST = 15  # exclude clusters too small to trust growth numbers from
 WINDOW_MONTHS = 3                  # matches trend_model.py's GROWTH_WINDOW_MONTHS
 
@@ -198,16 +200,7 @@ def run_holdout_validation(df: pd.DataFrame, embeddings: np.ndarray, n_clusters:
     }
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--metadata_csv", required=True)
-    parser.add_argument("--embeddings", required=True)
-    parser.add_argument("--n_clusters", type=int, default=30)
-    args = parser.parse_args()
-
-    df, embeddings = load_aligned(args.metadata_csv, args.embeddings)
-    out = run_holdout_validation(df, embeddings, args.n_clusters)
-
+def print_report(out):
     print("=" * 70)
     print("TEMPORAL HOLDOUT VALIDATION RESULTS")
     print("=" * 70)
@@ -232,6 +225,57 @@ def main():
     print("Full table (sorted by RAW predicted growth, highest first):")
     print(out["result_df"].to_string(index=False))
 
+
+def run_per_category(manifest_csv, embeddings_path, n_clusters_per_category,
+                     end_month=None, category_col="broad_category", min_images=100):
+    manifest = pd.read_csv(manifest_csv)
+    embeddings = np.load(embeddings_path, mmap_mode="r")
+    assert len(manifest) == len(embeddings), "manifest/embeddings row count mismatch"
+    if end_month:
+        keep = (manifest["date_ym"] <= end_month).values
+        manifest, embeddings = manifest[keep].reset_index(drop=True), embeddings[keep]
+
+    summary = {}
+    for cat in sorted(manifest[category_col].unique()):
+        mask = (manifest[category_col] == cat).values
+        n = int(mask.sum())
+        if n < min_images:
+            continue
+        k = k_for_category(cat, n, n_clusters_per_category)  # same rule as PerCategoryTrendModel.fit
+        print("\n" + "#" * 70 + f"\n# CATEGORY: {cat}  ({n} garments, k={k})\n" + "#" * 70)
+        out = run_holdout_validation(manifest[mask].reset_index(drop=True),
+                                     np.asarray(embeddings[mask]), k)
+        print_report(out)
+        summary[cat] = out
+
+    print("\n" + "=" * 70 + "\nPER-CATEGORY SUMMARY (Spearman: predicted vs actual future growth)\n" + "=" * 70)
+    print(f"{'category':10s} {'clusters':>8s} {'raw rho':>8s} {'raw p':>8s} {'share rho':>10s} {'share p':>8s}")
+    for cat, o in summary.items():
+        print(f"{cat:10s} {o['n_clusters_tested']:8d} {o['spearman_corr']:8.3f} {o['spearman_pval']:8.4f} "
+              f"{o['spearman_corr_norm']:10.3f} {o['spearman_pval_norm']:8.4f}")
+    return summary
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    src = parser.add_mutually_exclusive_group(required=True)
+    src.add_argument("--metadata_csv", help="whole-photo mode")
+    src.add_argument("--manifest_csv", help="per-garment mode (garment_manifest.csv)")
+    parser.add_argument("--embeddings", required=True)
+    parser.add_argument("--n_clusters", type=int, default=30,
+                        help="k (whole-photo) or max k per category (per-garment)")
+    parser.add_argument("--end_month", default=None, help="drop rows after this YYYY-MM")
+    args = parser.parse_args()
+
+    if args.manifest_csv:
+        return run_per_category(args.manifest_csv, args.embeddings, args.n_clusters, args.end_month)
+
+    df, embeddings = load_aligned(args.metadata_csv, args.embeddings)
+    if args.end_month:
+        keep = (df["date_ym"] <= args.end_month).values
+        df, embeddings = df[keep].reset_index(drop=True), embeddings[keep]
+    out = run_holdout_validation(df, embeddings, args.n_clusters)
+    print_report(out)
     return out
 
 

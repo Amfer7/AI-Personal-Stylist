@@ -483,6 +483,22 @@ DEFAULT_N_CLUSTERS_PER_CATEGORY = 15  # smaller than the whole-photo default (30
                                        # since each category has fewer garments than
                                        # the full dataset has photos
 
+# Per-category k overrides, chosen with k_sweep.py. At k=15, dresses were only
+# moderately stable (ARI 0.58); k=8 gives ARI 0.94 (k=10: 0.84, k=12: 0.89).
+N_CLUSTERS_OVERRIDES: Dict[str, int] = {"dress": 8}
+
+
+def k_for_category(category: str, n_images: int,
+                   n_clusters_per_category: int = DEFAULT_N_CLUSTERS_PER_CATEGORY,
+                   overrides: Optional[Dict[str, int]] = None) -> int:
+    """The single k rule shared by fitting, the stability test and the
+    temporal backtest: the per-category override if any, else the default —
+    capped so we don't ask for more clusters than there are (roughly) images
+    to fill them."""
+    overrides = N_CLUSTERS_OVERRIDES if overrides is None else overrides
+    k = overrides.get(category, n_clusters_per_category)
+    return min(k, max(2, n_images // 20))
+
 
 @dataclass
 class PerCategoryTrendModel:
@@ -501,7 +517,7 @@ class PerCategoryTrendModel:
             "embeddings, categories, and date_ym must all align"
 
         categories = np.array(categories)
-        unique_categories = sorted(set(categories))
+        unique_categories = sorted(set(map(str, categories)))
         models: Dict[str, TrendModel] = {}
 
         for cat in unique_categories:
@@ -513,8 +529,7 @@ class PerCategoryTrendModel:
                       f"to cluster meaningfully.")
                 continue
 
-            # Don't ask for more clusters than there are (roughly) images to fill them
-            k = min(n_clusters_per_category, max(2, n_images // 20))
+            k = k_for_category(cat, n_images, n_clusters_per_category)
             print(f"Fitting category '{cat}': {n_images} images, k={k}")
             model = TrendModel(n_clusters=k)
             model.fit(embeddings[mask], [date_ym[i] for i in range(len(date_ym)) if mask[i]])
@@ -583,17 +598,46 @@ class PerCategoryTrendModel:
         return pd.DataFrame(rows)
 
 
+def fragment_mask(
+    manifest: pd.DataFrame,
+    category: str = "dress",
+    dominant: str = "top",
+    category_col: str = "broad_category",
+) -> np.ndarray:
+    """
+    Boolean mask (aligned with `manifest` rows) of likely SegFormer fragments:
+    a `category` mask that is SMALLER than a `dominant` mask in the same source
+    photo. On the Pinterest scrape ~half of all 'dress' detections co-occur
+    with a 'top', and in ~4k of those the dress mask is the smaller one —
+    typically the hem of a long top or a jacket split into two labels. These
+    crops are not real dresses and blur the dress clusters.
+
+    Fixing this upstream would mean editing the vendored fashion_segmenter.py
+    (guarded by test_module1_sync.py), so it is filtered here instead.
+    """
+    px = manifest.groupby(["source_idx", category_col])["pixel_count"].sum().unstack(fill_value=0)
+    dominant_px = manifest["source_idx"].map(px[dominant]) if dominant in px else 0
+    return ((manifest[category_col] == category) & (manifest["pixel_count"] < dominant_px)).values
+
+
 def build_per_category_from_manifest(
     manifest_csv: str,
     embeddings_path: str,
     category_col: str = "broad_category",
     date_col: str = "date_ym",
     n_clusters_per_category: int = DEFAULT_N_CLUSTERS_PER_CATEGORY,
+    end_month: Optional[str] = None,
+    drop_fragments: bool = False,
 ) -> PerCategoryTrendModel:
     """
     The per-garment equivalent of build_from_directory(). Reads the manifest
     + embeddings produced by pinterest_garment_segmentation.py and fits one
     TrendModel per garment category.
+
+    end_month:      drop garments dated after this "YYYY-MM". Use it to cut a
+                    partial final month (the scrape ended 2026-09-11), which
+                    would otherwise sit inside the growth/recency windows.
+    drop_fragments: drop likely SegFormer fragments (see fragment_mask()).
     """
     manifest = pd.read_csv(manifest_csv)
     embeddings = np.load(embeddings_path)
@@ -601,6 +645,14 @@ def build_per_category_from_manifest(
         f"Row count mismatch: manifest has {len(manifest)} rows, embeddings "
         f"has {len(embeddings)}. Are these from the same segmentation run?"
     )
+    keep = np.ones(len(manifest), dtype=bool)
+    if end_month:
+        keep &= (manifest[date_col] <= end_month).values
+    if drop_fragments:
+        keep &= ~fragment_mask(manifest, category_col=category_col)
+    if not keep.all():
+        print(f"Filtering: keeping {int(keep.sum())} of {len(manifest)} garments")
+        manifest, embeddings = manifest[keep].reset_index(drop=True), embeddings[keep]
 
     model = PerCategoryTrendModel()
     model.fit(

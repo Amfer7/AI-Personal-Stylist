@@ -15,7 +15,7 @@ different vector spaces and cosine matching would silently degrade.
 This test asserts that parity on real Pinterest crops. It must pass before the
 full lean run is launched.
 
-Run directly:  python test_embedding_parity.py --metadata_csv ../PinterestLatest/pinterest_dataset/metadata.csv
+Run directly:  python test_embedding_parity.py --metadata_csv ../PinterestData/pinterest_dataset/metadata.csv
 Run on pytest: pytest test_embedding_parity.py
 """
 
@@ -30,7 +30,7 @@ import clip_extract_embeddings as cee
 from pinterest_garment_segmentation import extract_crops, embed_crops_batched
 
 DEFAULT_METADATA_CSV = os.path.join(
-    os.path.dirname(__file__), "..", "PinterestLatest", "pinterest_dataset", "metadata.csv"
+    os.path.dirname(__file__), "..", "PinterestData", "pinterest_dataset", "metadata.csv"
 )
 
 
