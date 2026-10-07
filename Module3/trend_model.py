@@ -20,7 +20,7 @@ What this gives you:
                               turn that into a 0-100 Trendiness Score per cluster
   3. save()/load()        -> persist the fitted model (centroids + scores + curves)
   4. score_embedding()    -> given ANY garment embedding (e.g. from a user photo,
-                              or from a teammate's CLIP output), return a
+                              or from another module's CLIP output), return a
                               trendiness score by matching to the nearest cluster
   5. score_image()        -> convenience wrapper: image path -> score
 

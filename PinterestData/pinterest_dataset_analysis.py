@@ -5,7 +5,7 @@ Full-range analysis of metadata.csv (not just the last 30 months),
 covering every query, with charts saved as PNG files.
 
 Usage:
-    python pinterest_dataset_analysis.py --dataset-dir <data_root>\\pinterest_dataset
+    python pinterest_dataset_analysis.py --dataset-dir <data_root>/pinterest_dataset
 
 Outputs (saved into --dataset-dir by default, override with --output-dir):
     monthly_distribution.png   - bar chart, full date_ym range, every month

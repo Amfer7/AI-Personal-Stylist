@@ -49,7 +49,7 @@ Fashion144k images ──01_segment_batch──▶ outputs/<idx>/{metadata.json,
 ```
 
 The notebook mounted Drive, unzipped `Fashion144k_v1.zip`, **cloned an external repo**
-(`github.com/external-org/AI-based-personal-stylist`) for `real_image_pipeline/`, then ran the
+(an external repository) for `real_image_pipeline/`, then ran the
 pilot and full passes.
 
 **Dataset — Fashion144K:** ~144,169 real full-body outfit photos with user attribute labels and
@@ -150,7 +150,7 @@ fix that only the full 144k scale revealed.
 | **1** | **Feature store** (`build_feature_store.py`, `--feature_store`): one-time memmap of `[512 CLIP | 32 colour | 26 attr]` + scalars; colour histogram computed **once** | training never reopens a PNG; **bit-identical** graphs, exact CPU AUC match; ~1 GB for 144k via `mmap_mode='r'` |
 | **2** | **GPU minibatching** (`--batch_size`): `collate` packs B outfits into one disconnected graph; segment-mean readout; vectorised BPR | **~20× faster** — a 10-epoch 5k run went **~300s → 14s**, AUC unchanged (parity test) |
 | **3** | **Multi-negative** (`--num_negatives`, K=4 nudged 5k test AUC 0.6568→0.6665); `--val_eval_max` | better signal; DataLoader workers obviated (no I/O left) |
-| **4** ⭐ | **Negative sampling O(pool) → O(1)** | **~27× faster at full scale** |
+| **4** | **Negative sampling O(pool) → O(1)** | **~27× faster at full scale** |
 
 ### fp16 caveat (Tier 0)
 A blanket fp16 autocast was **reverted** early: it cast image features to float32 while cached
@@ -193,7 +193,7 @@ a coin toss. **The compatibility score is essentially insensitive to the attribu
 alternatives on every seed. So the noisy CLIP-zero-shot **pattern/fabric/fit** one-hots never
 help; removing them (the subset) recovers reliable attrs back to ~baseline parity.
 
-**⚠️ Correction to earlier single-seed claims.** Prior versions of this doc reported a full-scale
+**Correction to earlier single-seed claims.** Prior versions of this doc reported a full-scale
 **seed-42-only** result — "baseline beats attributes by −0.0171" — as the verdict. That was a
 **seed artifact**: seed 42 was simultaneously full-attr's worst *and* subset's best draw. With
 three seeds the effect **evaporates**. Lesson: at ±0.02 per-seed noise, no full-scale single-seed
@@ -276,7 +276,7 @@ consequences: (1) many negatives are **false negatives** — a random top-for-to
 (3) hard-negative mining, (4) mean‖max readout or pairwise term. Steps 1–2 are low-risk ~30 min;
 step 3 is where the real jump should come, because it attacks the ceiling directly.
 
-**⚠️ Re-baseline caveat:** a higher AUC on a *harder* negative set is **not** comparable to 0.80 on
+**Re-baseline caveat:** a higher AUC on a *harder* negative set is **not** comparable to 0.80 on
 the current easy set. If you change the negatives, re-run all arms/seeds so the comparison stays
 honest.
 

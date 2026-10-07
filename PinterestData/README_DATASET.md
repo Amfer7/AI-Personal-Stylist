@@ -1,13 +1,14 @@
 # Pinterest Fashion Dataset
 
-
-
+Source data for the trend model (Module 3) of the AI Personal Stylist project.
+In this repository the data root is `PinterestData/` (the data itself is gitignored); paths below use
+`<data_root>` as a placeholder.
 
 ---
 
 ## Overview
 
-This dataset supports the **Trend Intelligence Module** of the AI-Powered Personal Stylist capstone project. It contains fashion images scraped from Pinterest along with their creation timestamps, which are used to construct temporal trend curves for each discovered style cluster.
+This dataset supports the **Trend Intelligence Module** of the AI Personal Stylist project. It contains fashion images scraped from Pinterest along with their creation timestamps, which are used to construct temporal trend curves for each discovered style cluster.
 
 The dataset feeds directly into:
 - **K-Means clustering** over CLIP embeddings to discover style archetypes
@@ -35,7 +36,7 @@ The dataset feeds directly into:
 │               │   └── ...
 │               └── ... (132 query folders total)
 │
-└── pinterest_dataset/                ← FINAL DATASET (use this in your project)
+└── pinterest_dataset/                ← FINAL DATASET (used by the project)
     ├── metadata.csv                  ← master index of all images
     └── images/
         ├── 2533343533223371.jpg      ← 224×224 RGB JPEG, CLIP-ready
@@ -151,7 +152,7 @@ When `description` is empty, the build script falls back to `pin_join.visual_ann
 
 ---
 
-## Loading the Dataset in Your Project
+## Loading the Dataset
 
 ```python
 import pandas as pd
@@ -160,7 +161,7 @@ from PIL import Image
 import torch
 import clip
 
-DATASET_DIR = Path(r"<data_root>\pinterest_dataset")
+DATASET_DIR = Path("<data_root>/pinterest_dataset")
 
 # Load master index
 df = pd.read_csv(DATASET_DIR / "metadata.csv")
@@ -253,6 +254,3 @@ python pinterest_large_scale.py build --raw-dir <data_root>\pinterest_data\raw -
 | tqdm | latest | Progress bars |
 | SQLite3 | built-in | Resumable progress tracking |
 | Python | 3.12.6 | Runtime |
-
----
-

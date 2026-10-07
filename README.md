@@ -1,8 +1,5 @@
 # AI-Powered Personal Stylist
 
-
-
-
 Take a photo of an outfit and the system tells you **what you're wearing**, **how well it goes
 together**, **how on-trend each piece is**, and **which one piece to change, and to what**.
 
@@ -22,10 +19,10 @@ together**, **how on-trend each piece is**, and **which one piece to change, and
 
 | Module | What it does | Status | Read more |
 |---|---|---|---|
-| **1. Perception** | Segments the photo into garments, names them, and describes each one (colour, silhouette, formality, …) with a CLIP embedding | ✅ done | [`Module1/README.md`](Module1/README.md) |
-| **2. Harmony** | A graph neural network scores how well the pieces go together. Trained on ~144k real outfits | ✅ done (test AUC ≈ 0.80) | [`Module2/README.md`](Module2/README.md) |
-| **3. Trend** | Scores each garment by how present its style is in recent Pinterest activity | ✅ done | [`Module3/README.md`](Module3/README.md) |
-| **4. Recommendation** | Tries replacements for each piece and recommends the swap that helps most, or says "keep it" | 📝 designed, not built | [`Module4/README.md`](Module4/README.md) |
+| **1. Perception** | Segments the photo into garments, names them, and describes each one (colour, silhouette, formality, …) with a CLIP embedding | Complete | [`Module1/README.md`](Module1/README.md) |
+| **2. Harmony** | A graph neural network scores how well the pieces go together. Trained on ~144k real outfits | Complete (test AUC ≈ 0.80) | [`Module2/README.md`](Module2/README.md) |
+| **3. Trend** | Scores each garment by how present its style is in recent Pinterest activity | Complete | [`Module3/README.md`](Module3/README.md) |
+| **4. Recommendation** | Tries replacements for each piece and recommends the swap that helps most, or says "keep it" | Designed (not yet built) | [`Module4/README.md`](Module4/README.md) |
 
 ## Try it
 

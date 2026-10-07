@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary & Objective
 
-In real-world fashion recommendation systems, user input images are messy: selfies, elevator mirror shots, wild angles, layered outfits, and complex lighting.
+In real-world fashion recommendation systems, user input images are messy: selfies, mirror shots, unusual angles, layered outfits, and complex lighting.
 
 The goal of this pipeline is to act as the **Perception Engine**:
 
@@ -21,17 +21,17 @@ flowchart LR
     E --> F["Compatibility & Harmony Score"]
 ```
 
-1. **Perception**: Takes any wild user photo and extracts every individual garment with **exact pixel-level transparency** (no room background, no bare skin).
+1. **Perception**: Takes any real-world user photo and extracts every individual garment with **exact pixel-level transparency** (no room background, no bare skin).
 2. **Representation**: Computes a **512-dimensional L2-normalized visual embedding** (`.npy`) using OpenAI CLIP (`ViT-B/32`).
 3. **Graph Construction**: Passes these embeddings as **Node Features** (`x_i in R^512`) into the **Outfit Graph Neural Network (GNN)** to predict outfit compatibility, style harmony, and fill-in-the-blank (FITB) recommendations.
 
 ---
 
-## 2. The Evolution: Pehle (Before) vs Abhi (Now)
+## 2. The Evolution: Before vs Now
 
 To understand why the architecture is designed this way, here is the breakdown of why earlier approaches broke and how the current solution solves them:
 
-| Challenge | Pehle (DeepFashion2 / YOLOS Studio Models) | Pehle (Generic Saliency / GrabCut) | Abhi (Current Production Pipeline) |
+| Challenge | Before (DeepFashion2 / YOLOS studio models) | Before (generic saliency / GrabCut) | Now (current pipeline) |
 |---|---|---|---|
 | **Real User Photos & Selfies** | Trained exclusively on upright catalog fashion models with white backgrounds. Hallucinated pants on chests in mirror selfies. | N/A | **Human Fashion Parsing (SegFormer)** trained on real diverse poses, selfies, and streetwear. |
 | **Dark Garments (e.g. Black Duck T-shirt in `010931`)** | Box was bounding the torso, but had no pixel mask. | Saliency (`U2Net`) assumed face/hair was the only foreground subject and **erased 85% of dark fabric**. | **SegFormer Clothing Semantic Masking** keeps 100% of fabric, print logos, necklaces, and textures intact. |
@@ -68,7 +68,7 @@ real_image_pipeline/
   - `8: Belt`
   - `9/10: Shoes`
   - `16: Bag`
-  - `Face / Hair / Arms / Legs`: Automatically separated as non-garment human anatomy!
+  - `Face / Hair / Arms / Legs`: Automatically separated as non-garment human anatomy.
 
 ### Stage 2: Precision Transparent RGBA Extraction
 - For each detected clothing category, a binary mask is extracted.

@@ -2,7 +2,7 @@
 
 _Updated 2026-10-07._
 
-Current state: **M1 Perception ✅ · M2 Harmony GNN ✅ (AUC ≈ 0.80) · M3 Trend ✅ · M4 Recommendation 📝 designed, not built.**
+Current state: **M1 Perception: complete · M2 Harmony GNN: complete (AUC ≈ 0.80) · M3 Trend: complete · M4 Recommendation: designed, not built.**
 
 ---
 
@@ -23,7 +23,7 @@ Design is complete: see [`module4-design.md`](module4-design.md) (plain language
 
 **Then:** candidate pool → swap groups → recommender → evaluation (incl. human study) → demo integration.
 
-**Pending team approval:** a vision-language-model judge as an extra evaluation signal.
+**Under consideration:** a vision-language-model judge as an extra evaluation signal.
 
 ---
 
@@ -47,7 +47,7 @@ From [`Module2/miniREADME.md`](../Module2/miniREADME.md) §6.4, cheapest first:
 - [ ] AdamW (`weight_decay≈1e-4`) + cosine LR + warmup; sweep `lr ∈ {1e-4, 3e-4, 5e-4}`; 20–30 epochs.
 - [ ] **Hard-negative mining**, where the real jump should come.
 - [ ] Richer readout (mean ‖ max) or an explicit pairwise term.
-- [ ] ⚠️ If the negative set changes, re-run all variants and seeds, because the AUCs aren't comparable otherwise.
+- [ ] **Note:** if the negative set changes, re-run all variants and seeds, because the AUCs aren't comparable otherwise.
 
 ---
 
@@ -63,6 +63,5 @@ From [`Module2/miniREADME.md`](../Module2/miniREADME.md) §6.4, cheapest first:
 
 - [x] One root README linking to per-module READMEs; docs in `docs/`.
 - [x] **No images in git.** `.gitignore` blocks all image formats; figures and sample photos stay local.
-- [ ] Optional: images committed *before* this rule are still in git history. Removing them needs a
-      history rewrite plus a force-push, which only makes sense if the whole team agrees.
+- [x] Images removed from git history (2026-10-07).
 - [ ] Before any M3 re-run: `Module3/test_module1_sync.py` and `Module3/test_embedding_parity.py` must pass.

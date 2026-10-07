@@ -114,11 +114,11 @@ deliberately spoiled ones (should say "swap"), and pick the threshold that separ
 2. Check whether M4 ranks the **garment the person actually wore** near the top. This is the
    strongest evidence, because it's a real human choice rather than the model grading itself.
 3. Compare against simple baselines (random swap, trend-only, a CLIP-similarity heuristic).
-4. A **blind human study**: classmates pick the better outfit (M4's fix vs the spoiled one, and vs a
+4. A **blind human study**: volunteer raters pick the better outfit (M4's fix vs the spoiled one, and vs a
    random fix).
 5. All tuning happens on one set of outfits; the final numbers come from a separate set, run once.
 
-*(A vision-language-model judge is pending team approval.)*
+*(A vision-language-model judge is under consideration.)*
 
 ### 10. The demo
 Module 4 is added to the existing `demo.py` web app: a verdict headline, suggestion cards, a trend-weight
