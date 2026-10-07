@@ -37,3 +37,7 @@ venv/
 
 # ── Non-code project files ──
 *.pdf
+
+# ── Local tool settings / notes ──
+CLAUDE.local.md
+.claude/settings.local.json
