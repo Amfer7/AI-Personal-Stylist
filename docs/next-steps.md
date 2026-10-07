@@ -42,7 +42,7 @@ Design is complete: see [`module4-design.md`](module4-design.md) (plain language
 
 ## 3. Module 2: pushing AUC past ~0.80
 
-From [`Module2/miniREADME.md`](../Module2/miniREADME.md) §6.4, cheapest first:
+From [`Module2/README.md`](../Module2/README.md) ("Raising AUC above ~0.80"), cheapest first:
 - [ ] L2-normalise CLIP embeddings before the input projection.
 - [ ] AdamW (`weight_decay≈1e-4`) + cosine LR + warmup; sweep `lr ∈ {1e-4, 3e-4, 5e-4}`; 20–30 epochs.
 - [ ] **Hard-negative mining**, where the real jump should come.

@@ -29,7 +29,7 @@ Pinterest AUC gate fails** (§2.1, Phase 0).
 ### Facts that constrain the design (verified in the repo)
 
 1. **No trained per-item harmony score exists.** The GNN's `per_item` head is not
-   in the training loss ([`Module2/miniREADME.md`](../Module2/miniREADME.md) §6), so it can't be read off as a
+   in the training loss ([`Module2/README.md`](../Module2/README.md), "Engineering history"), so it can't be read off as a
    "harmony weak link". Per-piece harmony has to be measured by *changing* a piece
    and re-scoring the whole outfit.
 2. **The GNN needs more than a CLIP vector per garment:** 512 CLIP + 32 colour

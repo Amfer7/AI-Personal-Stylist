@@ -40,15 +40,51 @@ leggings, shorts, skirt, dress, shoe, bag, hat, belt, scarf, sunglasses), each w
   - *guessed by CLIP zero-shot (noisier):* pattern, fabric, fit, formality, and a 0–100 formality score.
 - **Outfit-level "fashion-theory" features:** hue distance, volume balance, formality coherence.
 
+Text prompts are encoded once and cached, so attributes cost ~34 ms per garment on CPU and almost
+nothing on GPU. If CLIP isn't available, colour and silhouette are still filled in.
+
+## Why SegFormer
+
+Real photos are messy: selfies, mirror shots, odd angles, dark clothes. Earlier approaches failed on them:
+
+| Approach | What went wrong |
+|---|---|
+| Detectors trained on catalogue photos (DeepFashion2 / YOLOS) | Found "pants" on chests in mirror selfies; returned boxes with the room attached; produced duplicate boxes on one top (`sweater` + `shirt_blouse` + `t_shirt`) |
+| Saliency cut-out (U2Net) | Treated the face as the subject and erased ~85% of a black t-shirt |
+| GrabCut alone | Jagged edges that chopped off prints and hems |
+| **SegFormer + CLIP (current)** | A human-parsing model trained on real poses keeps the whole garment. SegFormer picks the body region, then CLIP names the type on the clean cut-out. Embeddings contain only fabric, no background |
+
 ## What it saves (the output contract)
 
 ```
 outputs/<id>/
-  <garment>_<n>.png      transparent cut-out
-  <garment>_<n>.npy      512-D CLIP embedding
-  metadata.json          per garment: category, broad_category, bbox, confidence, attributes
+  <garment>_<n>.png      transparent cut-out (RGBA)
+  <garment>_<n>.npy      512-D CLIP embedding (float32, unit length)
+  metadata.json          a JSON list, one entry per garment
   outfit_features.json   outfit-level hue / volume / formality numbers
   <id>_vis.jpg           annotated preview
+```
+
+One `metadata.json` entry:
+```json
+{
+  "file": "t_shirt_0.png", "category": "t_shirt", "broad_category": "top",
+  "raw_category": "Upper-clothes", "confidence": 0.82, "pixel_count": 137004,
+  "bbox": [0, 291, 468, 702], "embedding_dim": 512,
+  "attributes": {
+    "color": {"dominant_rgb": [233, 196, 203], "hue": 348.8, "saturation": 0.158, "value": 0.915, "name": "red"},
+    "silhouette": "boxy", "aspect_ratio": 1.165, "extent": 0.772, "area_px": 53097,
+    "pattern": "dotted", "pattern_conf": 0.43, "fabric": "silk", "fabric_conf": 0.58,
+    "fit": "regular", "fit_conf": 0.52, "formality": "formal", "formality_conf": 0.65,
+    "formality_score": 72.6
+  }
+}
+```
+
+`outfit_features.json`:
+```json
+{"hue_contrast": 21.7, "top_bottom_hue_distance": 3.3, "volume_balance": 23.8,
+ "top_bottom_area_ratio": 0.238, "formality_coherence": 79.9, "num_garments": 3}
 ```
 Other modules depend on this exact layout. Don't change it without updating them.
 
@@ -76,13 +112,13 @@ The easiest way to see it is the repo-root web demo: `python demo.py`, then choo
 | `render_perception_demo.py` | Slide figure: photo → garments + attributes |
 | `test_pipeline.py` | Checks (512-D unit-length embeddings, colour ignores background, …) |
 | `yolo_detect_and_crop.py` | Older YOLO-based detector, kept for reference (not the default) |
-| `changes.md` | Log of the attribute work added to this module |
-| `PIPELINE_HANDOFF_GUIDE.md` | Historical handoff notes from the original pipeline |
 
 **Note:** `Module3/` keeps identical copies of `fashion_segmenter.py`, `attribute_analyzer.py` and
 `clip_extract_embeddings.py`. `Module3/test_module1_sync.py` fails if they drift, so change both together.
 
 ## Known limits
 - One garment per body region, so layering isn't represented.
-- CLIP's zero-shot guesses (pattern, fabric, fit) are noisy. Module 2 drops them (see
-  [`docs/gnn-training.md`](../docs/gnn-training.md)).
+- CLIP's zero-shot guesses (pattern, fabric, fit) are noisy. For example, linen pants were labelled
+  "corduroy" (confidence 0.34). Module 2 drops them (see [`docs/gnn-training.md`](../docs/gnn-training.md)).
+  Colour, silhouette and the outfit-level features are reliable.
+- Belts and small accessories aren't always split out as separate items.

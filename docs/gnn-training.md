@@ -1,7 +1,7 @@
 # How the harmony GNN was trained (Module 2)
 
 A short account of how Module 2's model learns, what went wrong along the way, and what the
-results mean. For the full engineering log, see [`Module2/miniREADME.md`](../Module2/miniREADME.md).
+results mean. For the full engineering reference, see [`Module2/README.md`](../Module2/README.md).
 
 ---
 
@@ -78,8 +78,8 @@ seed, but the baseline doesn't. On seed 44, full attributes scored 0.7885 vs the
 
 - **Perception, not the GNN.** The documented mistakes happen upstream in Module 1: an earlier detector
   found "pants" on chests in mirror selfies, and CLIP once labelled linen pants as "corduroy" (confidence
-  0.34). See [`Module1/PIPELINE_HANDOFF_GUIDE.md`](../Module1/PIPELINE_HANDOFF_GUIDE.md) and
-  [`Module1/changes.md`](../Module1/changes.md). No case of the GNN itself producing a garment or an
+  0.34). See [`Module1/README.md`](../Module1/README.md) ("Why SegFormer", "Known limits"). No case of
+  the GNN itself producing a garment or an
   explanation is documented.
 - **Some "spoiled" outfits aren't actually worse.** A random same-category swap can produce an equally
   good outfit, but training treats every swap as worse. This caps the achievable AUC and hasn't been measured.
@@ -88,7 +88,7 @@ seed, but the baseline doesn't. On seed 44, full attributes scored 0.7885 vs the
 
 ## Ideas for going beyond 0.80
 
-Ranked cheapest first in [`Module2/miniREADME.md` §6.4](../Module2/miniREADME.md): normalise CLIP vectors,
+Ranked cheapest first in [`Module2/README.md`](../Module2/README.md) ("Raising AUC above ~0.80"): normalise CLIP vectors,
 a better optimiser schedule, **hard-negative mining** (the most promising), and a richer readout.
 If the definition of a "spoiled" outfit changes, all variants must be re-run, because a higher AUC on a
 harder test isn't comparable to 0.80.
