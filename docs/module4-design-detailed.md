@@ -2,7 +2,7 @@
 
 _Plain-language version: [`module4-design.md`](module4-design.md)._
 
-_Date: 2026-10-05 · Status: **core built on Fashion144k (2026-10-09); evaluation next** · **all decisions D1–D11 made 2026-10-07**_
+_Date: 2026-10-05 · Status: **built and evaluated on Fashion144k (2026-10-09); demo integration next** · **all decisions D1–D11 made 2026-10-07**_
 
 ## 1. Goal
 
@@ -138,11 +138,26 @@ left open:
    combined score is 0 by definition. The baseline reports harmony %, harmony logit and mean piece trend.
 5. **D8a dedupe representatives are computed twice:** once over the demo pool and once over test rows
    only. Otherwise an eval-pool duplicate group whose representative is a train row would vanish.
-6. **Provisional knobs.** `w_t`, τ, ε and the selection rule are calibrated in evaluation (§6) and
-   until then carry `status: provisional` in `Module4/m4_settings.json`; every `Recommendation` lists
-   them. Current values: w_t = 0, τ = 0 / 0 / 0.5, ε = 0. **`t_dup` = 0.99, calibrated visually (D8).**
+6. **Calibrated knobs** (evaluation, §6.6). `w_t`, τ, ε and the selection rule carry a `status` in
+   `Module4/m4_settings.json`; until calibrated, every `Recommendation` lists them as provisional.
+   All are now calibrated: rule `slot_percentile`, w_t = 0.2 (w_h = 0.8), τ = 0.333 (`slot_percentile`),
+   ε = 0.2σ.
 7. **D5 no padding masks.** What-if outfits keep the original size and reference outfits are batched by
    size, so every dense batch is a full complete graph.
+8. **D3 weights are a mix:** gain = (1 − w)·ΔH + w·ΔT, so w = 0 is harmony-only and w = 1 trend-only
+   (the two ends of the §6.2 sweep).
+9. **D7 ε = M4's detection limit**, not GNN noise. The planned noise measurement (swap a garment for a
+   repost of itself) gives exactly 0, because reposts are identical photos. On the dev set M4's hit rate
+   is no better than chance for harmony drops below ~0.2σ, so a refresh option losing less than 0.2σ
+   "keeps the look".
+10. **D8a reposts are found at outfit level.** The CLIP-only rule (cosine ≥ t_dup, transitive groups) merged
+   distinct garments: on tiny, mostly empty crops CLIP collapses, ~7.7M pairs of different garments score
+   ≥ 0.99, and one group held 4,651 items. Adding matching colour histograms (L1 ≤ 0.25 of 6) and sizes
+   (ratio ≤ 1.25) still merged distinct tiny crops. Now two outfits are **reposts** when both have the
+   same number (≥ 2) of garments and every garment matches under that per-garment rule; groups don't chain.
+   72 repost pairs on Fashion144k; spot-checked photos were all the same photo under different IDs. Only
+   garments within repost groups are merged (238 in the demo pool). D8b keeps using the per-garment rule.
+   In evaluation the source outfit's reposts are excluded along with it.
 
 ## 3. Architecture
 
@@ -275,6 +290,17 @@ costs API credits.
   bootstrap for ranks. Results broken down by source and by swap group.
 - Caveat: the GNN both detects and fixes, so hit rate and ΔH partly measure the GNN against itself.
   Original recovery, the CLIP-coherence baseline and the human study are the independent evidence.
+
+### 6.6 Results (Fashion144k, 2026-10-09)
+
+Report set (2,000 outfits, run once, frozen settings): weak-link hit rate **71.8%** (95% CI 69.8–73.7)
+vs chance 31.4%, CLIP coherence 38.6%, random 30.4%, trend-only 32.4% (all p < 1e-99). Original
+recovery: median rank in the top **4.8%** of candidates (baselines 34–51%), recall@10 3.2%. The GNN rates
+its own top pick above the original in 95% of outfits. By severity: 52% / 78% / 86% (subtle / medium /
+obvious). Verdicts at τ: 75.0% detection on corrupted outfits, 21.1% "swap" on real ones (an upper bound
+on false alarms). Weight sweep: w_t = 0.2 keeps 94% of the harmony gain, raises the top suggestion's ΔT
+from 0.04σ to 1.51σ and costs 3.6 points of hit rate (75.4% → 71.8%). Rule ablation: 71.5 / 72.1 / 71.8%
+(`max_gain` / `topk_mean_gain` / `slot_percentile`). Full numbers in [`Module4/README.md`](../Module4/README.md).
 
 ## 7. Testing
 

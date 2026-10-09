@@ -1,7 +1,9 @@
 """Visual calibration of the near-duplicate threshold t_dup (D8).
 
 For a few garment types, draws pool pairs whose CLIP cosine falls in each band (0.90 ... 0.99) and
-renders one contact sheet per type: one row per band, each cell = the two crops side by side. A
+that also pass the rest of the near-duplicate rule (matching colour histograms and crop sizes, see
+candidate_pool.is_duplicate), i.e. pairs the dedupe would merge at that threshold. It renders one
+contact sheet per type: one row per band, each cell = the two crops side by side. A
 reviewer marks the lowest band where pairs look like "the same item"; that band becomes t_dup in
 m4_settings.json (status "calibrated"), followed by  python Module4/build_cache.py --force.
 
@@ -30,14 +32,25 @@ BANDS = (0.90, 0.93, 0.95, 0.97, 0.99)
 HALF_WIDTH = 0.005
 
 
-def sample_band_pairs(emb, rows, lo, hi, n_pairs, rng, max_anchors=2000):
-    """Up to n_pairs (row_a, row_b, cosine) with lo <= cosine < hi, anchors drawn at random."""
-    E = emb[torch.as_tensor(rows, device=emb.device)]
+def sample_band_pairs(emb, rows, lo, hi, n_pairs, rng, max_anchors=2000, pool=None):
+    """Up to n_pairs (row_a, row_b, cosine) with lo <= cosine < hi, anchors drawn at random. With a
+    pool, pairs must also match on colour and size (the rest of the near-duplicate rule)."""
+    rows_t = torch.as_tensor(rows, device=emb.device)
+    E = emb[rows_t]
     out = []
     for a in rng.permutation(len(rows))[:max_anchors]:
         sims = E @ E[a]
         sims[a] = -1
-        hits = torch.nonzero((sims >= lo) & (sims < hi)).squeeze(1)
+        ok = (sims >= lo) & (sims < hi)
+        if pool is not None:
+            r = int(rows[a])
+            t_dup, max_l1, max_ratio = pool.dup_rule
+            pool.dup_rule = (-2.0, max_l1, max_ratio)               # colour + size only; the band sets cosine
+            try:
+                ok &= pool.dup_mask(rows_t, pool.emb[r], pool.colour[r], float(pool.area[r]))
+            finally:
+                pool.dup_rule = (t_dup, max_l1, max_ratio)
+        hits = torch.nonzero(ok).squeeze(1)
         if len(hits):
             b = int(hits[int(rng.integers(len(hits)))])
             out.append((int(rows[a]), int(rows[b]), float(sims[b])))
@@ -91,7 +104,7 @@ def main(argv=None):
     for t in args.types:
         rows = np.nonzero(pool.type == TYPE_ID[t])[0]
         rows = rows[[os.path.exists(s.abs(pool.crop_path(r))) for r in rows]]   # crops are not all local
-        bands = {b: sample_band_pairs(pool.emb, rows, b - HALF_WIDTH, b + HALF_WIDTH, args.pairs, rng)
+        bands = {b: sample_band_pairs(pool.emb, rows, b - HALF_WIDTH, b + HALF_WIDTH, args.pairs, rng, pool=pool)
                  for b in BANDS}
         path = os.path.join(out_dir, f"{t}.png")
         render_sheet(pool, s, t, bands, path)

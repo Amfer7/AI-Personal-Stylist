@@ -18,7 +18,7 @@ import torch
 from m2_bridge import BROAD_ID, BROAD_VOCAB, FEATURE_COLS, TREND_MATCH_THRESHOLD, od
 from swap_groups import TYPE_ID, TYPES
 
-POOL_FORMAT = 2
+POOL_FORMAT = 3                     # 3: outfit-level repost groups (D8a)
 SPLIT_CODES = {"train": 0, "val": 1, "test": 2, "none": 3}
 _CHUNK = 65536
 
@@ -46,6 +46,7 @@ def pool_fingerprint(settings) -> dict:
                        "output_entries": crops})
     return {"format": POOL_FORMAT, "checkpoint": _sha16(settings.abs(settings.checkpoint)),
             "trend_model": _sha16(settings.abs(settings.trend_model)), "t_dup": settings.t_dup,
+            "dup_max_colour_l1": settings.dup_max_colour_l1, "dup_max_area_ratio": settings.dup_max_area_ratio,
             "stores": stores}
 
 
@@ -76,6 +77,23 @@ def load_store_arrays(settings):
         embs.append(np.ascontiguousarray(feat[:, :512]))
         scals.append(np.load(os.path.join(d, "node_scalars.npy")))
     return np.concatenate(embs), np.concatenate(scals)
+
+
+def load_store_colour(settings) -> np.ndarray:
+    """Colour features [N, 32] (three histograms, each summing to 1), pool row order."""
+    parts = []
+    for s in settings.stores:
+        feat = np.load(os.path.join(settings.abs(s.store_dir), "features.npy"), mmap_mode="r")
+        parts.append(np.ascontiguousarray(feat[:, 512:544]).astype(np.float32))
+    return np.concatenate(parts)
+
+
+def is_duplicate(cos, colour_l1, area_a, area_b, t_dup: float, max_l1: float, max_ratio: float):
+    """The near-duplicate rule (D8a/b): CLIP cosine >= t_dup AND matching colour histograms AND crop
+    areas within max_ratio. CLIP alone is not enough: on tiny, mostly empty crops (e.g. a left and a
+    right shoe far apart) it collapses, and thousands of distinct items score >= 0.99."""
+    big, small = torch.maximum(area_a, area_b), torch.minimum(area_a, area_b).clamp(min=1.0)
+    return (cos >= t_dup) & (colour_l1 <= max_l1) & (big / small <= max_ratio)
 
 
 def crops_present(output_root: str, files_by_key: dict) -> dict:
@@ -118,35 +136,71 @@ def trend_scores(emb: np.ndarray, broad_names: np.ndarray, trend_model):
     return score, cluster
 
 
-def dedupe(emb: torch.Tensor, type_ids: np.ndarray, area: np.ndarray, t_dup: float,
-           eligible: np.ndarray, chunk: int = 2048) -> np.ndarray:
-    """Near-duplicate groups (D8a): within each specific type, rows linked by cosine >= t_dup
-    (transitively) share one representative, the largest crop (ties: lowest row).
-    emb: [N, 512] L2-normalised, on the GPU when available. Returns rep_of int32 [N], -1 = not eligible."""
-    from scipy.sparse import coo_matrix
-    from scipy.sparse.csgraph import connected_components
+def repost_groups(emb: torch.Tensor, colour: torch.Tensor, type_ids: np.ndarray, outfit: np.ndarray,
+                  area: np.ndarray, t_dup: float, max_l1: float, max_ratio: float, chunk: int = 2048) -> np.ndarray:
+    """Repost groups (D8a): outfits that are the same photo posted more than once. Two outfits are reposts
+    when both have the same number of typed garments (at least 2) and every garment has a duplicate
+    (is_duplicate) of the same type in the other outfit. Matching single garments is not enough: on
+    tiny, mostly empty crops CLIP, colour and size all collapse, so distinct items match.
+    Groups do not chain: outfits are visited in order; an unassigned outfit claims the unassigned
+    outfits that are reposts of it directly. outfit: dense outfit id per row (-1 = ignore).
+    Returns the group id per row: the id of the group's first outfit (-1 where outfit is -1)."""
+    from scipy.sparse import csr_matrix
 
-    rep = np.full(len(type_ids), -1, np.int32)
-    for t in np.unique(type_ids[eligible]):
-        rows = np.nonzero(eligible & (type_ids == t))[0]
-        E = emb[torch.as_tensor(rows, device=emb.device)]
-        src, dst = [], []
+    typed = (type_ids >= 0) & (outfit >= 0)
+    n_out = int(outfit.max()) + 1
+    n_g = np.bincount(outfit[typed], minlength=n_out)
+    dev = emb.device
+    area_t = torch.as_tensor(np.asarray(area, np.float64), device=dev)
+    keys = []
+    for t in np.unique(type_ids[typed]):
+        rows = np.nonzero(typed & (type_ids == t))[0]
+        r_t = torch.as_tensor(rows, device=dev)
+        E, C, A = emb[r_t], colour[r_t], area_t[r_t]
         for s in range(0, len(rows), chunk):
             ii, jj = torch.nonzero(E[s:s + chunk] @ E.T >= t_dup, as_tuple=True)
             ii = ii + s
             keep = jj > ii
-            src.append(ii[keep].cpu().numpy())
-            dst.append(jj[keep].cpu().numpy())
-        src, dst, m = np.concatenate(src), np.concatenate(dst), len(rows)
-        _, comp = connected_components(coo_matrix((np.ones(len(src), np.int8), (src, dst)), shape=(m, m)),
-                                       directed=False)
-        order = np.lexsort((rows, -area[rows], comp))       # by component, then area desc, then row
-        c = comp[order]
-        first = np.ones(m, bool)
-        first[1:] = c[1:] != c[:-1]
-        rep_of_comp = np.empty(comp.max() + 1, np.int64)
-        rep_of_comp[c[first]] = rows[order][first]
-        rep[rows] = rep_of_comp[comp]
+            ii, jj = ii[keep], jj[keep]
+            ok = is_duplicate(torch.ones_like(ii, dtype=E.dtype), (C[ii] - C[jj]).abs().sum(1), A[ii], A[jj],
+                              t_dup, max_l1, max_ratio)
+            oa, ob = outfit[rows[ii[ok].cpu().numpy()]], outfit[rows[jj[ok].cpu().numpy()]]
+            diff = oa != ob
+            lo, hi = np.minimum(oa, ob)[diff].astype(np.int64), np.maximum(oa, ob)[diff].astype(np.int64)
+            keys.append(np.unique(lo * n_out + hi))          # one garment per type per outfit: count once
+    keys = np.concatenate(keys) if keys else np.zeros(0, np.int64)
+    pair, count = np.unique(keys, return_counts=True)
+    a, b = pair // n_out, pair % n_out
+    full = (n_g[a] >= 2) & (n_g[a] == n_g[b]) & (count == n_g[a])
+    a, b = a[full], b[full]
+    adj = csr_matrix((np.ones(2 * len(a), np.int8), (np.r_[a, b], np.r_[b, a])), shape=(n_out, n_out))
+    group = np.full(n_out, -1, np.int64)
+    for o in np.unique(np.r_[a, b]):
+        if group[o] >= 0:
+            continue
+        group[o] = o
+        nb = adj.indices[adj.indptr[o]:adj.indptr[o + 1]]
+        group[nb[group[nb] < 0]] = o
+    alone = group < 0
+    group[alone] = np.nonzero(alone)[0]
+    out = np.full(len(type_ids), -1, np.int32)
+    out[outfit >= 0] = group[outfit[outfit >= 0]]
+    return out
+
+
+def representatives(repost: np.ndarray, type_ids: np.ndarray, area: np.ndarray, eligible: np.ndarray) -> np.ndarray:
+    """One representative per (repost group, garment type) among eligible rows: the largest crop (ties:
+    lowest row). Returns rep_of int32 [N], -1 = not eligible."""
+    rep = np.full(len(type_ids), -1, np.int32)
+    rows = np.nonzero(eligible & (type_ids >= 0) & (repost >= 0))[0]
+    if not len(rows):
+        return rep
+    key = repost[rows].astype(np.int64) * 256 + type_ids[rows].astype(np.int64)
+    order = np.lexsort((rows, -np.asarray(area, np.float64)[rows], key))
+    k = key[order]
+    first = np.r_[True, k[1:] != k[:-1]]
+    grp = np.cumsum(first) - 1
+    rep[rows[order]] = rows[order][first][grp]
     return rep
 
 
@@ -197,9 +251,13 @@ def build_pool(settings, gnn, trend_model) -> None:
     known = meta["type"] >= 0
     test = meta["split"] == SPLIT_CODES["test"]
     # Demo suggestions are shown as images, so the demo pool is limited to garments with a crop on disk.
-    meta["rep_demo"] = dedupe(emb_t, meta["type"], scal[:, 2], settings.t_dup, eligible=known & meta["has_crop"])
-    meta["rep_eval"] = dedupe(emb_t, meta["type"], scal[:, 2], settings.t_dup, eligible=known & test)
-    del emb_t
+    col_t = torch.as_tensor(load_store_colour(settings), device=gnn.device)
+    dup = (settings.t_dup, settings.dup_max_colour_l1, settings.dup_max_area_ratio)
+    outfit = np.unique((meta["source"].astype(np.int64) << 32) | meta["outfit_ord"], return_inverse=True)[1]
+    meta["repost"] = repost_groups(emb_t, col_t, meta["type"], outfit.astype(np.int64), scal[:, 2], *dup)
+    meta["rep_demo"] = representatives(meta["repost"], meta["type"], scal[:, 2], known & meta["has_crop"])
+    meta["rep_eval"] = representatives(meta["repost"], meta["type"], scal[:, 2], known & test)
+    del emb_t, col_t
     np.savez(os.path.join(out, "meta.npz"), **meta)
     np.save(os.path.join(out, "proj.npy"), np.concatenate(proj))
     with open(os.path.join(out, "files.json"), "w", encoding="utf-8") as f:
@@ -209,24 +267,28 @@ def build_pool(settings, gnn, trend_model) -> None:
 
 
 class CandidatePool:
-    def __init__(self, *, stores, proj, emb, scalars, meta, files, outfit_keys, device):
+    def __init__(self, *, stores, proj, emb, scalars, meta, files, outfit_keys, device, colour=None, dup_rule=None):
         self.stores = list(stores)
         self.device = torch.device(device)
         self.n = len(files)
         self.files = files
         self.outfit_keys = outfit_keys
         for k in ("source", "split", "type", "broad", "store_row", "outfit_ord", "has_crop", "trend", "cluster",
-                  "rep_demo", "rep_eval"):
+                  "rep_demo", "rep_eval", "repost"):
             setattr(self, k, np.asarray(meta[k]))
         dev = self.device
         self.proj = torch.as_tensor(np.asarray(proj, np.float32), device=dev)
         e = torch.as_tensor(np.asarray(emb, np.float32), device=dev)
         self.emb = e / e.norm(dim=1, keepdim=True).clamp(min=1e-8)
+        self.colour = torch.as_tensor(np.zeros((self.n, 32), np.float32) if colour is None
+                                      else np.asarray(colour, np.float32), device=dev)
+        self.dup_rule = dup_rule or (0.99, 0.25, 1.25)       # (t_dup, max colour L1, max area ratio)
         s = torch.as_tensor(np.asarray(scalars), dtype=torch.float64, device=dev)
         self.hue, self.formality, self.area = s[:, 0].contiguous(), s[:, 1].contiguous(), s[:, 2].contiguous()
         self.broad_t = torch.as_tensor(self.broad.astype(np.int64), device=dev)
         self.type_t = torch.as_tensor(self.type.astype(np.int64), device=dev)
         self.trend_t = torch.as_tensor(self.trend.astype(np.float32), device=dev)
+        self.repost_t = torch.as_tensor(self.repost.astype(np.int64), device=dev)
         idx = np.arange(self.n)
         self._is_rep = {"demo": torch.as_tensor(self.rep_demo == idx, device=dev),
                         "eval": torch.as_tensor(self.rep_eval == idx, device=dev)}
@@ -239,7 +301,7 @@ class CandidatePool:
         if not os.path.exists(os.path.join(d, "fingerprint.json")):
             raise FileNotFoundError(f"No Module 4 cache at {d}: run  python Module4/build_cache.py")
         if not is_fresh(settings):
-            raise RuntimeError("Module 4 cache is stale (checkpoint, trend model, stores or t_dup changed): "
+            raise RuntimeError("Module 4 cache is stale (checkpoint, trend model, stores or duplicate rule changed): "
                                "run  python Module4/build_cache.py --force")
         emb, scal = load_store_arrays(settings)
         with open(os.path.join(d, "files.json"), encoding="utf-8") as f:
@@ -248,7 +310,8 @@ class CandidatePool:
             keys = json.load(f)
         return cls(stores=settings.stores, proj=np.load(os.path.join(d, "proj.npy")), emb=emb, scalars=scal,
                    meta=dict(np.load(os.path.join(d, "meta.npz"))), files=files, outfit_keys=keys,
-                   device=device)
+                   device=device, colour=load_store_colour(settings),
+                   dup_rule=(settings.t_dup, settings.dup_max_colour_l1, settings.dup_max_area_ratio))
 
     # ---- queries ----
     def empty_rows(self) -> torch.Tensor:
@@ -256,7 +319,7 @@ class CandidatePool:
 
     def candidate_rows(self, types, mode: str = "demo", exclude=None) -> torch.Tensor:
         """Representative rows (D8a) of the given specific types. mode "eval" = test rows only.
-        exclude = (source name, outfit key): drop that outfit's own garments."""
+        exclude = (source name, outfit key): drop that outfit's garments and those of its reposts."""
         if not types:
             return self.empty_rows()
         tid = torch.tensor([TYPE_ID[t] for t in types], device=self.device)
@@ -264,11 +327,24 @@ class CandidatePool:
         if exclude is not None:
             own = self.outfit_rows(*exclude)
             mask[torch.as_tensor(own, device=self.device)] = False
+            mask &= self.repost_t != int(self.repost[own[0]])
         return torch.nonzero(mask).squeeze(1)
 
     def cosine_to(self, rows: torch.Tensor, v) -> torch.Tensor:
         v = torch.as_tensor(np.asarray(v, np.float32), device=self.device)
         return self.emb[rows] @ (v / v.norm().clamp(min=1e-8))
+
+    def dup_mask(self, rows: torch.Tensor, emb, colour, area: float) -> torch.Tensor:
+        """Which of `rows` are near-duplicates (is_duplicate) of a garment with this embedding, colour
+        features and area (area in the 98,304-px frame, like the pool)."""
+        if not len(rows):
+            return torch.zeros(0, dtype=torch.bool, device=self.device)
+        c = torch.as_tensor(np.zeros(32, np.float32) if colour is None else np.asarray(
+            colour.cpu() if torch.is_tensor(colour) else colour, np.float32), device=self.device)
+        a = torch.full((len(rows),), float(area), dtype=torch.float64, device=self.device)
+        e = emb.cpu().numpy() if torch.is_tensor(emb) else emb
+        return is_duplicate(self.cosine_to(rows, e), (self.colour[rows] - c).abs().sum(1), self.area[rows], a,
+                            *self.dup_rule)
 
     def outfits(self) -> dict:
         """{(source_id, outfit_ord): np.ndarray of pool rows}."""

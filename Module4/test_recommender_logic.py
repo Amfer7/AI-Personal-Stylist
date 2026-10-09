@@ -65,8 +65,10 @@ def make(trend_worn=50.0, sigma_logit=1.0, train_rows=(), **overrides):
             "trend": np.array([r[3] for r in ROWS], np.float32),
             "cluster": np.array([r[2] for r in ROWS], np.int16),
             "rep_demo": np.arange(n, dtype=np.int32),
-            "rep_eval": np.where(split == SPLIT_CODES["test"], np.arange(n), -1).astype(np.int32)}
+            "rep_eval": np.where(split == SPLIT_CODES["test"], np.arange(n), -1).astype(np.int32),
+            "repost": np.arange(n, dtype=np.int32)}
     scal = np.column_stack([rng.uniform(0, 360, n), rng.uniform(0, 100, n), rng.uniform(500, 5000, n)])
+    scal[7, 2] = 2000.0                      # row 7 is the worn top itself: same embedding, colour and size
     pool = CandidatePool(stores=[StoreSpec("fashion144k", "s", "o", "x.mat")], proj=np.zeros((n, 128)),
                          emb=emb, scalars=scal, meta=meta, files=[f"{t}_0.png" for t, *_ in ROWS],
                          outfit_keys={"fashion144k": [str(i) for i in range(n)]}, device="cpu")
@@ -81,6 +83,7 @@ def make(trend_worn=50.0, sigma_logit=1.0, train_rows=(), **overrides):
                                 tau={"max_gain": 0.0, "topk_mean_gain": 0.0, "slot_percentile": 0.5},
                                 trend_floor=False, same_type=False)
     s = s.with_(**overrides)
+    pool.dup_rule = (s.t_dup, s.dup_max_colour_l1, s.dup_max_area_ratio)
     scorer = StubScorer([r[1] for r in ROWS])
     ref = HarmonyReference(np.linspace(-5, 5, 101), sigma_logit=sigma_logit, sigma_trend=10.0)
     return Recommender(s, pool, scorer, ref, CooccurrenceFilter(counts, 20)), OutfitState(pieces), scorer

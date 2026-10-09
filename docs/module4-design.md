@@ -1,6 +1,9 @@
 # Module 4: Swap Recommendation (design)
 
-**Status:** core built on Fashion144k (2026-10-09); evaluation next · all decisions made 2026-10-07.
+**Status:** built and evaluated on Fashion144k (2026-10-09); demo integration next · all decisions made 2026-10-07.
+**Result:** on 2,000 held-out outfits with one piece deliberately spoiled, M4 finds the spoiled piece
+**72%** of the time (chance 31%, best simple baseline 39%), and ranks the garment the person actually
+wore in the top 5% of thousands of candidates. Details in [`Module4/README.md`](../Module4/README.md).
 **Full engineering spec** (every decision with alternatives, evidence and file references):
 [`module4-design-detailed.md`](module4-design-detailed.md).
 
@@ -107,7 +110,8 @@ recommending a swap is **learned from data**: run M4 on real outfits (should say
 deliberately spoiled ones (should say "swap"), and pick the threshold that separates them best.
 
 ### 8. No duplicates, real variety
-- Identical garments in the catalogue (reposts) are merged once, up front.
+- Reposts (the same photo posted twice) are merged once, up front. They're spotted at the outfit
+  level, because comparing single garments wrongly matched different tiny shoe crops.
 - M4 never suggests the item you're already wearing.
 - The three suggestions come from **different style clusters**, so they're real choices, not three
   versions of the same black boot.
@@ -145,7 +149,7 @@ Because M4 *acts* on the trend score, the formula is re-tested before M4 is tune
 5. Refit M3 on the new data and settle the trend formula.
 6. Build the combined catalogue.
 
-**Then M4:** candidate pool → swap groups → recommender (**built, Fashion144k only**) → evaluation → demo.
+**Then M4:** candidate pool → swap groups → recommender → evaluation (**both done, Fashion144k only**) → demo.
 
 ## Not in scope (for now)
 - **Multi-piece swaps.** Deferred, but the code is designed so they can be added later.

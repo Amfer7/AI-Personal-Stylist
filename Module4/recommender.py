@@ -77,7 +77,7 @@ class Recommender:
         types = [t for t in types if self.cooc.allowed(t, others)]
         rows = self.pool.candidate_rows(types, mode=mode, exclude=exclude)
         if len(rows):
-            rows = rows[self.pool.cosine_to(rows, p.emb) < self.settings.t_dup]       # D8b: not your own item
+            rows = rows[~self.pool.dup_mask(rows, p.emb, p.colour, p.area)]          # D8b: not your own item
         if trend_floor and not np.isnan(p.trend) and len(rows):
             t = self.pool.trend_t[rows]
             keep = torch.isnan(t) | (t >= p.trend)

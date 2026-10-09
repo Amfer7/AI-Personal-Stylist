@@ -42,6 +42,7 @@ class Piece:
     trend: float
     cluster: int
     pool_row: int | None = None
+    colour: np.ndarray | None = None     # 32 colour features, for the near-duplicate rule (D8b)
 
     @property
     def group(self):
@@ -104,7 +105,8 @@ def load_outfit_dir(outfit_dir: str, gnn, trend_model, photo_px=None) -> OutfitS
             hue=np.nan if node["hue"] is None else float(node["hue"]),
             formality=float(node["formality"]), area=float(node["area"]) * scale,
             trend=np.nan if t["trendiness_score"] is None else float(t["trendiness_score"]),
-            cluster=-1 if t.get("cluster_id") is None else int(t["cluster_id"])))
+            cluster=-1 if t.get("cluster_id") is None else int(t["cluster_id"]),
+            colour=np.asarray(node["colour"], np.float32)))
     if not pieces:
         raise NoGarmentsDetected("no garments detected")
     return OutfitState(tuple(pieces), outfit_dir=outfit_dir, flags=tuple(flags))
@@ -116,7 +118,8 @@ def piece_from_pool(pool, row: int) -> Piece:
                  broad=BROAD_VOCAB[int(pool.broad[row])], proj=pool.proj[row],
                  emb=pool.emb[row].cpu().numpy(), hue=float(pool.hue[row]),
                  formality=float(pool.formality[row]), area=float(pool.area[row]),
-                 trend=float(pool.trend[row]), cluster=int(pool.cluster[row]), pool_row=int(row))
+                 trend=float(pool.trend[row]), cluster=int(pool.cluster[row]), pool_row=int(row),
+                 colour=pool.colour[row].cpu().numpy())
 
 
 def state_from_pool(pool, source: str, key: str) -> OutfitState:

@@ -10,26 +10,28 @@
   "checkpoint": "Fashion144k_v1/ck_attr_subset_s42/clip_outfit_gnn_best.pt",
   "trend_model": "Module3/per_category_trend_model.pkl",
   "cache_dir": "Module4/cache",
-  "w_h": 1.0,
-  "w_t": 0.0,
-  "rule": "topk_mean_gain",
+  "w_h": 0.8,
+  "w_t": 0.2,
+  "rule": "slot_percentile",
   "topk": 5,
   "tau": {
-    "max_gain": 0.0,
-    "topk_mean_gain": 0.0,
-    "slot_percentile": 0.5
+    "max_gain": 1.710050848235205,
+    "topk_mean_gain": 1.6497584921418524,
+    "slot_percentile": 0.3332931506959192
   },
-  "eps": 0.0,
+  "eps": 0.2,
   "t_dup": 0.99,
+  "dup_max_colour_l1": 0.25,
+  "dup_max_area_ratio": 1.25,
   "cooc_min": 20,
   "same_type": false,
   "trend_floor": false,
   "vram_gb": 6.0,
   "status": {
-    "w_t": "provisional",
-    "rule": "provisional",
-    "tau": "provisional",
-    "eps": "provisional",
+    "w_t": "calibrated",
+    "rule": "calibrated",
+    "tau": "calibrated",
+    "eps": "calibrated",
     "t_dup": "calibrated"
   }
 }

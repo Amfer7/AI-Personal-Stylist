@@ -2,7 +2,7 @@
 
 _Updated 2026-10-09._
 
-Current state: **M1 Perception: complete · M2 Harmony GNN: complete (AUC ≈ 0.80) · M3 Trend: complete · M4 Recommendation: core built on Fashion144k; evaluation next.**
+Current state: **M1 Perception: complete · M2 Harmony GNN: complete (AUC ≈ 0.80) · M3 Trend: complete · M4 Recommendation: built and evaluated on Fashion144k; demo integration next.**
 
 ---
 
@@ -23,20 +23,20 @@ Design is complete: see [`module4-design.md`](module4-design.md) (plain language
 
 **M4 core on Fashion144k (build step 2): done** (2026-10-09). See [`Module4/README.md`](../Module4/README.md).
 - [x] Candidate pool, swap groups + co-occurrence filter, dense GNN scorer, harmony reference,
-      selection rules, verdicts, dedupe, CLI. 60 tests pass.
+      selection rules, verdicts, dedupe, CLI.
 - [x] Performance gate: `image2.jpg` vs the full demo pool, **0.16 s warm, 1.92 GiB peak** (target ≤ 5 s, ≤ 6 GB).
-- [x] `t_dup` = 0.99, calibrated visually.
+- [x] Dedupe rebuilt at outfit level (reposts), after the CLIP-only rule turned out to merge distinct tiny crops.
 
-**Next: evaluation (build step 3).** `Module4/eval_recovery.py`, following spec §6:
-- [ ] Dev / report outfit sets (2,000 + 2,000 from the test split).
-- [ ] Group-consistent corruption with severity strata; weak-link hit rate.
-- [ ] Original recovery (rank of the garment actually worn).
-- [ ] Baselines: random, trend-only, CLIP coherence.
-- [ ] Calibrate `w_t` (Pareto sweep), the selection rule (ablation), `tau` and `eps`; freeze them.
-- [ ] Bootstrap CIs; report set run once.
+**Evaluation (build step 3): done** (2026-10-09). `Module4/eval_recovery.py`, spec §6.
+- [x] Dev / report sets (2,000 + 2,000), group-consistent corruption, original recovery, three baselines.
+- [x] Calibrated and frozen: rule `slot_percentile`, w_t = 0.2, τ = 0.333, ε = 0.2σ.
+- [x] Report set run once: hit rate **71.8%** (chance 31.4%, best baseline 38.6%); original in the
+      top **4.8%** of candidates.
 
-**Then:** Phase 0 code (on the 224×224 copies) → demo integration (D10) → full-resolution Pinterest,
-retune, human study.
+**Next:** Phase 0 code (on the 224×224 copies) → demo integration (D10, incl. the trade-off figure) →
+full-resolution Pinterest, re-run the evaluation for both sources, human study.
+- [ ] Open question for later: about 1 in 5 real outfits gets a "swap" verdict. The human study will
+      show how many of those are real improvements.
 
 **Under consideration:** a vision-language-model judge as an extra evaluation signal.
 

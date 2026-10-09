@@ -25,10 +25,10 @@ def test_paths_are_repo_relative():
 
 
 def test_provisional_lists_uncalibrated_knobs():
-    s = M4Settings.load()
-    assert "tau" in s.provisional()
+    s = M4Settings.load().with_(status={"tau": "provisional", "eps": "calibrated"})
+    assert s.provisional() == ["tau"]
     s2 = s.with_(status={**s.status, "tau": "calibrated"})
-    assert "tau" not in s2.provisional()
+    assert s2.provisional() == []
     assert s.status["tau"] == "provisional"  # with_ does not mutate
 
 
