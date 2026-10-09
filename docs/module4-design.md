@@ -1,6 +1,6 @@
 # Module 4: Swap Recommendation (design)
 
-**Status:** designed, not built yet · all decisions made 2026-10-07.
+**Status:** core built on Fashion144k (2026-10-09); evaluation next · all decisions made 2026-10-07.
 **Full engineering spec** (every decision with alternatives, evidence and file references):
 [`module4-design-detailed.md`](module4-design-detailed.md).
 
@@ -84,6 +84,9 @@ A **co-occurrence filter** learned from real outfits blocks combinations that ne
 **All of them.** Instead of sampling, M4 scores every allowed replacement. That's made fast by building
 all the "what-if" outfits in one GPU operation and precomputing part of the GNN for the whole
 catalogue. Target: **≤ 5 seconds per photo** on the main machine, using at most **6 GB of GPU memory**.
+Measured: **0.16 s** and **under 2 GB**.
+Your photo's garment sizes are rescaled to the catalogue's photo size first, so a large phone photo
+doesn't make every catalogue piece look tiny next to yours.
 
 ### 6. What you see
 Three possible verdicts:
@@ -142,7 +145,7 @@ Because M4 *acts* on the trend score, the formula is re-tested before M4 is tune
 5. Refit M3 on the new data and settle the trend formula.
 6. Build the combined catalogue.
 
-**Then M4:** candidate pool → swap groups → recommender → evaluation → demo.
+**Then M4:** candidate pool → swap groups → recommender (**built, Fashion144k only**) → evaluation → demo.
 
 ## Not in scope (for now)
 - **Multi-piece swaps.** Deferred, but the code is designed so they can be added later.

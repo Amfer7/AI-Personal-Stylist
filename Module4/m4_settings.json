@@ -1,0 +1,35 @@
+{
+  "stores": [
+    {
+      "name": "fashion144k",
+      "store_dir": "Fashion144k_v1/feature_store",
+      "output_root": "Fashion144k_v1/outputs",
+      "split": "Fashion144k_v1/split.mat"
+    }
+  ],
+  "checkpoint": "Fashion144k_v1/ck_attr_subset_s42/clip_outfit_gnn_best.pt",
+  "trend_model": "Module3/per_category_trend_model.pkl",
+  "cache_dir": "Module4/cache",
+  "w_h": 1.0,
+  "w_t": 0.0,
+  "rule": "topk_mean_gain",
+  "topk": 5,
+  "tau": {
+    "max_gain": 0.0,
+    "topk_mean_gain": 0.0,
+    "slot_percentile": 0.5
+  },
+  "eps": 0.0,
+  "t_dup": 0.99,
+  "cooc_min": 20,
+  "same_type": false,
+  "trend_floor": false,
+  "vram_gb": 6.0,
+  "status": {
+    "w_t": "provisional",
+    "rule": "provisional",
+    "tau": "provisional",
+    "eps": "provisional",
+    "t_dup": "calibrated"
+  }
+}

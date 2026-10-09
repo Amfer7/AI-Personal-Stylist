@@ -2,7 +2,7 @@
 
 _Plain-language version: [`module4-design.md`](module4-design.md)._
 
-_Date: 2026-10-05 · Status: **decided, not yet built** · **all decisions D1–D11 made 2026-10-07**_
+_Date: 2026-10-05 · Status: **core built on Fashion144k (2026-10-09); evaluation next** · **all decisions D1–D11 made 2026-10-07**_
 
 ## 1. Goal
 
@@ -68,7 +68,7 @@ Pinterest AUC gate fails** (§2.1, Phase 0).
 | D2 | **How to pick the piece to swap** | **Swap-based, with a pluggable selection rule.** Every piece's shortlist is scored as what-if outfits, and each piece is summarised by a rule: `max_gain`, `topk_mean_gain` (k=5, **default**) or `slot_percentile` (share of candidates whose combined score beats the current piece). The piece with the highest summary is swapped. §6 measures all three rules' hit rate and **the winner ships as the default** | Leave-one-out harmony: removing a piece changes outfit size, which confounds the GNN, and "remove your shoes" isn't actionable. Trend-only: ignores the validated signal. Plain `max_gain` as the only rule: winner's curse, since garment types with volatile GNN scores (dress, jacket) win by luck | Same-size what-if outfits keep comparisons fair, and "which piece" and "what replacement" come from one calculation. `topk_mean` resists one-outlier wins while staying in score points (needed by D7). Choosing the rule empirically turns a judgement call into a reportable ablation. Suggestions are the chosen piece's style-diverse top 3 (D8c) |
 | D3 | **Combined score** | **Rank on standardised gains; display percentiles.** `gain = w_H·ΔH + w_T·ΔT`, where ΔH = Δ raw GNN logit ÷ std of logits over real test outfits, and ΔT = trend(candidate) − trend(current piece) ÷ std of garment trend scores. **w_T is chosen by a Pareto sweep** (§6): the largest w_T that keeps ≥ 90% of the harmony-only gain. Configurable flag/slider. Harmony reference rebuilt on **all** real test outfits (Fashion144k + Pinterest after Phase 0). No confident trend match → ΔT = 0 | Fixed `0.7·H% + 0.3·T` on 0–100 scales (the original draft); 0.5/0.5; harmony-only; trend-only | Verified 2026-10-07: H% is a percentile vs ~500 outfits (`demo_score.py:129`), so it **ceilings at 100** (strong outfits' swaps tie) and moves in 0.2-pt steps. Outfit T is a **mean over pieces** (`trend_model.py:579`), so one swap's trend effect shrinks as 1/n (the same swap counts 2.5× less in a 5-piece outfit than in a 2-piece one), making "70/30" behave like ~95/5. Standardised units make the weights mean what they say. Trend has no ground truth to tune against, so the trade-off curve is reported instead of a hand-picked weight |
 | D4 | **Swap groups** (what may replace what) | **Slot-based groups + co-occurrence filter.** Groups: **upper** = {t_shirt, sweater, shirt_blouse, jacket, top}; **lower** = {pants, leggings, shorts, skirt}; **dress** = {dress}; each accessory alone (shoe, bag, hat, belt, scarf, sunglasses). **Filter:** reject a candidate whose type co-occurs with any remaining piece's type in < **20** train outfits (Fashion144k train + Pinterest train after Phase 0; cached). Output names type changes ("jacket → shirt_blouse"). **`--same-type`** flag = strict like-for-like. Type read from `index.json` `category` | Outerwear vs inner-top split (original draft); broad category only (allows shoe→sunglasses); exact type only (blocks pants→skirt; relies on noisy CLIP subtype) | Verified 2026-10-07: M1 segments **one garment per SegFormer region** (`fashion_segmenter.py:46`), so outfits never hold two upper garments (co-occurrence lift **0.00** between all upper types) and layering doesn't exist. The outer/inner split guarded nothing. Skirt + leggings is common (lift 0.75, tights) but pants + leggings never occurs (0.00), so free lower swaps could create impossible outfits. The data-learned filter blocks those without hand rules. Groups block *structural* nonsense; style is the GNN's call |
-| D5 | **Candidate shortlist per piece** | **Exhaustive: score every candidate** in the piece's swap group that passes the D4 filter (no sampling, deterministic). Enabled by (1) a **vectorised swap builder** (fixed nodes once; all candidates' 5-D edge features in one tensor op from `node_scalars.npy`), the primary path, with a parity test vs `build_graph`; (2) the GNN input projection (570→128) **precomputed for the whole pool** (~620k × 128, ~300 MB), with a parity test; (3) chunked batches under a **6 GB VRAM cap** (GPU is shared). **Trend floor off by default**; `--no-trend-drop` restores it. **Performance gate:** `samples/image2.jpg`, full demo pool, **≤ 5 s warm** on the RTX 3070 Ti. Fallback only if it fails: a cheap pre-ranker narrows each group before the GNN | Seeded random sample K = 512 (original draft: ~2% coverage of e.g. 94k shoes, so the true best is usually missed and output depends on the seed); top-K by trend (biased, low variety); hard trend floor (blocks the best fix for a trendy but clashing piece, skews D2's `slot_percentile`, and D3/D7 already price trend) | Verified 2026-10-07: the GNN is small (2 edge-aware layers, hidden 128, `03_train_gnn.py:85`), edge features are 5 closed-form scalars (`02_outfit_dataset.py:208`), and the per-node input projection doesn't depend on the graph. The cost was the Python `build_graph` loop, not the GNN. Group sizes vary ~50× (shoes vs sunglasses), which D2's ablation and D7's calibration absorb |
+| D5 | **Candidate shortlist per piece** | **Exhaustive: score every candidate** in the piece's swap group that passes the D4 filter (no sampling, deterministic). Enabled by (1) a **vectorised swap builder** (fixed nodes once; all candidates' 5-D edge features in one tensor op from `node_scalars.npy`), the primary path, with a parity test vs `build_graph`; (2) the GNN input projection (**555→128**, attr-subset checkpoint) **precomputed for the whole pool** (480,079 × 128 fp32 = 246 MB; ≈ 320 MB with Pinterest), with a parity test; (3) chunked batches under a **6 GB VRAM cap** (GPU is shared). **Trend floor off by default**; `--no-trend-drop` restores it. **Performance gate:** `samples/image2.jpg`, full demo pool, **≤ 5 s warm** on the RTX 3070 Ti. Fallback only if it fails: a cheap pre-ranker narrows each group before the GNN. **Measured 2026-10-09:** 0.16 s warm, peak 1.92 GiB, so the fallback was not needed | Seeded random sample K = 512 (original draft: ~2% coverage of e.g. 94k shoes, so the true best is usually missed and output depends on the seed); top-K by trend (biased, low variety); hard trend floor (blocks the best fix for a trendy but clashing piece, skews D2's `slot_percentile`, and D3/D7 already price trend) | Verified 2026-10-07: the GNN is small (2 edge-aware layers, hidden 128, `03_train_gnn.py:85`), edge features are 5 closed-form scalars (`02_outfit_dataset.py:208`), and the per-node input projection doesn't depend on the graph. The cost was the Python `build_graph` loop, not the GNN. Group sizes vary ~50× (shoes vs sunglasses), which D2's ablation and D7's calibration absorb |
 | D6 | **Output shape** | **One layout per D7 verdict.** `swap`: chosen piece highlighted → top 3 replacements, plus **"also worth improving"** (other pieces that also clear τ, each with its single best option). `refresh`: "already strong", up to 3 trendier options with ΔH ≥ −ε. `keep`: "already strong, no swap". **Suggestion card:** crop image · type change if any ("jacket → shirt_blouse") · harmony % before→after · piece trend before→after · source (Fashion144k / Pinterest) · a **"what changed" line** from the attribute and edge-feature deltas (formality gap, hue relation, volume), labelled descriptive, not causal. **Per-piece panel** on every verdict: selection score, best ΔH, best ΔT, ✓ if ≥ τ. `Recommendation` serialises to JSON, consumed by demo, figure and eval | Top-1 only; top-3 for every piece (clutter); a single layout regardless of verdict | Exhaustive scoring (D5) makes full per-piece information free. Verdict-specific layouts keep the message honest. Type changes (D4) and source (D1) must be visible. The GNN is non-linear in its features, so true attribution is out of scope; the descriptive line gives users a reason without overclaiming (caveat in README) |
 | D7 | **When the outfit is already good** | **Data-calibrated threshold + three verdicts.** Threshold τ on the chosen piece's selection score = the value that best separates real test outfits (should be "no swap") from corrupted ones (should be "swap"), by balanced accuracy, through the same best-of-K search. Verdicts: **`swap`** (score ≥ τ: piece + top 3) · **`refresh`** (below τ, but a candidate has ΔT > 0 with ΔH ≥ −ε: "already strong, optional trendier option") · **`keep`** (below τ, nothing qualifies: "already strong, no swap"). ε also calibrated on real outfits (the ΔH noise band) | Fixed "< 2 points" (arbitrary, and in units D3 no longer uses); always recommend something | Searching every candidate per piece *always* finds some positive gain by luck, so the threshold must be calibrated against that same search. Calibration accounts for it automatically and gives reportable false-alarm and detection rates. `refresh` gives an already-good outfit useful advice (update, not fix). D3's raw logits remove the 100-ceiling, so "already strong" is measured |
 | D8 | **Near-duplicates & variety** | **Three layers.** (a) **Pool-level dedupe at build time:** group near-identical garments (CLIP cosine ≥ t_dup, chunked GPU matmul over the whole pool) and keep one representative (largest crop). (b) **Exclude the user's own item:** drop candidates ≥ t_dup to the current piece. (c) **Style-diverse top 3:** #1 = best overall; #2/#3 = best from *different* M3 style clusters that still clear the verdict bar (≥ τ for `swap`; ΔH ≥ −ε for `refresh`); fill by gain if too few qualify. Unmatched-cluster garments form one bucket, separated by t_dup. **t_dup calibrated visually:** contact sheet of pairs at cosine bands 0.90/0.93/0.95/0.97/0.99; a reviewer marks where pairs become "the same item" | Fixed cosine > 0.95 among listed suggestions only (original draft); MMR with a hand-tuned λ | Same-type CLIP embeddings are concentrated (distinct items often 0.85–0.95), so a guessed threshold either drops real options or keeps reposts. Dedupe alone doesn't create variety (black boot / ankle boot / bootie). Reposts and repins inflate the winner's curse without adding information. Suggesting the user's own item is the most visible failure. M3 clusters give diversity from existing structure without trading away quality |
@@ -96,6 +96,10 @@ with attributes + colour histogram). Then build `PinterestData/feature_store/` w
 **same builder** used for `Fashion144k_v1/feature_store/` (identical `row_dim` 570 layout). Guards:
 `test_module1_sync.py`, `test_embedding_parity.py`, plus a new check that a Fashion144k photo
 re-run through store mode reproduces its existing store row.
+**Area frame (added during the build):** the `node_scalars` area must be stored in the 98,304-px
+Fashion144k frame, i.e. `pixel_count × 98,304 / (width × height)` of the full-resolution photo, as
+M4 does for user photos (§5). Otherwise every Pinterest candidate looks oversized next to
+Fashion144k and user pieces.
 
 **Step 0.3: Pinterest split.** Seeded, outfit-level (= photo-level) train / val / test, matching
 Fashion144k's proportions (~60 / 10 / 30).
@@ -118,35 +122,68 @@ shorts and 548 sunglasses) need no special handling; their per-group counts are 
 
 **Not doing:** a third dataset. Revisit only if a swap group is still too small after Phase 0.
 
+### 2.2 Clarifications made during the build (2026-10-09)
+
+The core build pinned down these points the decisions above
+left open:
+
+1. **D5 trend floor** (`--no-trend-drop`, off by default): drops candidates whose trend is *known* and
+   *below* the current piece's known trend. Candidates without a trend score are kept. If the floor
+   leaves nothing, it is relaxed for that piece and flagged (§5).
+2. **D8c bar for suggestions #2/#3:** gain ≥ τ for the `max_gain` and `topk_mean_gain` rules. For
+   `slot_percentile`, where τ is a fraction rather than a gain, the bar is gain > 0.
+3. **D6/D7 `refresh`:** options are pooled across all pieces, ranked by combined gain and made
+   style-diverse with the same D8c routine. Each suggestion records which piece it replaces.
+4. **D3 `baseline.combined` dropped.** Gains are relative to the current outfit, so the baseline's
+   combined score is 0 by definition. The baseline reports harmony %, harmony logit and mean piece trend.
+5. **D8a dedupe representatives are computed twice:** once over the demo pool and once over test rows
+   only. Otherwise an eval-pool duplicate group whose representative is a train row would vanish.
+6. **Provisional knobs.** `w_t`, τ, ε and the selection rule are calibrated in evaluation (§6) and
+   until then carry `status: provisional` in `Module4/m4_settings.json`; every `Recommendation` lists
+   them. Current values: w_t = 0, τ = 0 / 0 / 0.5, ε = 0. **`t_dup` = 0.99, calibrated visually (D8).**
+7. **D5 no padding masks.** What-if outfits keep the original size and reference outfits are batched by
+   size, so every dense batch is a full complete graph.
+
 ## 3. Architecture
 
 New folder `Module4/`. Each unit has one job:
 
 | Unit | Responsibility | Depends on |
 |---|---|---|
-| `candidate_pool.py` | Build once and cache (`Module4/cache/`, gitignored): per store row → source, swap group, trend score, M3 cluster id, split, duplicate-group representative flag (D8a), precomputed input projection (D5). Vectorised: per category, one `embeddings @ centroids.T` matmul; dedupe by chunked cosine on GPU | both feature stores, M3 `PerCategoryTrendModel`, splits |
-| `calibrate_dup.py` | Contact sheet of pool pairs at cosine bands for visual t_dup calibration (D8) | `candidate_pool`, crop PNGs |
-| `swap_groups.py` | `swap_group(category)` → group key, and `CooccurrenceFilter.allowed(cand_type, other_types)` (D4). Group mapping is a pure function; the filter loads a cached type×type count matrix built from train outfits | `index.json`, split |
-| `recommender.py` | `Recommender.recommend(outfit_dir) -> Recommendation`: baseline scores, per-piece shortlist (D5), batched GNN scoring of swapped outfits, combined score (D3), dedupe (D8), pick piece (D2), threshold (D7) | M2 `PhotoScorer` (reused for GNN + dataset + percentile), M3 model, `candidate_pool` |
-| `render_recommendation.py` | Slide figure per verdict (D6): outfit with the swap piece highlighted → suggestion cards (crop, type change, harmony/trend before→after, source, "what changed") + per-piece panel | matplotlib, crop PNGs, `Recommendation` JSON |
+| `m4_settings.json` / `m4_settings.py` | Every path and knob (repo-relative); `status` marks provisional values | — |
+| `m2_bridge.py` | The single doorway to M2 (dataset, model) and M3 (trend model); feature columns, broad-category vocab, edge-weight table, device + VRAM cap | M2, M3 code |
+| `swap_groups.py` | The 16 types, D4 groups, `replacement_types()`, `CooccurrenceFilter` (cached type×type counts from train outfits) | `index.json`, split |
+| `dense_gnn.py` | Dense batched re-implementation of the M2 GNN: input projection, edge tensor, logits, VRAM-aware chunking with OOM halving (D5). Parity-tested against `model(build_graph)` | M2 checkpoint |
+| `candidate_pool.py` | Build once and cache (`Module4/cache/`, gitignored): per store row → source, type, trend score, M3 cluster id, split, dedupe representative flags (D8a), precomputed input projection (D5). `CandidatePool` serves candidate rows, cosines and crop paths | feature stores, M3 model, splits |
+| `calibrate_dup.py` | Contact sheets of pool pairs at cosine bands for visual t_dup calibration (D8) | `candidate_pool`, crop PNGs |
+| `harmony_reference.py` | Sorted real-test logits, σ_logit, σ_trend, percentile lookup (D3) | `dense_gnn`, `candidate_pool` |
+| `outfit_state.py` | Immutable outfit (`with_swap()` for future multi-piece), M1 folder loader with area normalisation, pool outfits for eval | M2 node builder |
+| `swap_scorer.py` | Outfit logit + every swap logit for one piece | `dense_gnn`, `candidate_pool` |
+| `selection.py` | Pure functions: gains, the three selection rules (D2), cluster keys, style-diverse top 3 (D8c) | — |
 | `explain.py` | Descriptive "what changed" line from attribute/edge-feature deltas (D6). Pure function | node scalars |
-| `eval_recovery.py` | §6 protocol: dev/report sets, group-consistent corruption, all metrics, baselines, sweeps, calibration, bootstrap CIs | `recommender`, `swap_groups` |
-| `human_study/` | Collage generation for the blind A/B study + analysis (win rates, Fleiss' κ) (§6.4) | `render_recommendation` |
-| `README.md` | How to run, results | — |
+| `recommendation.py` | `Suggestion` / `Recommendation` dataclasses, JSON round-trip, text summary | — |
+| `recommender.py` | `Recommender.score()` (all GNN work, cached in a `SwapTable`), `decide()` (no GNN: D2, D3, D7, D8), `recommend()` | all of the above |
+| `build_cache.py`, `run_recommend.py` | CLIs: cache build with freshness fingerprint; photo or outfit folder → recommendation | — |
+| `render_recommendation.py` | *(demo step)* Slide figure per verdict (D6) | `Recommendation` JSON |
+| `eval_recovery.py` | *(evaluation step)* §6 protocol: dev/report sets, group-consistent corruption, metrics, baselines, sweeps, calibration, bootstrap CIs | `recommender`, `swap_groups` |
+| `human_study/` | *(after Phase 0)* Collage generation for the blind A/B study + analysis (§6.4) | `render_recommendation` |
+| `README.md` | How to run, measured numbers, caveats | — |
 
-`Recommendation` is a plain dataclass: `baseline {harmony, trend, combined}`,
-`swap_piece {file, category, group}`, `suggestions [ {source, outfit_id, file, crop_path,
-from_type, to_type, harmony_pct_before/after, trend_before/after, d_harmony_z, d_trend_z, gain,
-what_changed: str} ×≤3 ]`, `also_improve [ {piece, best suggestion} ]`, `per_piece {file:
-{best_gain, topk_mean_gain, slot_percentile, best_dH, best_dT, clears_tau}}`, `selection_rule: str`,
-`verdict: "swap" | "refresh" | "keep"`. Serialises to JSON (`to_json()`).
+`Recommendation` is a plain dataclass (`Module4/recommendation.py`): `verdict: "swap" | "refresh" | "keep"`,
+`selection_rule`, `pool_mode`, `weights {w_h, w_t}`, `thresholds {tau, eps}`,
+`baseline {harmony_pct, harmony_logit, trend_mean}`, `swap_piece {file, category, group}`,
+`suggestions [ {piece_file, pool_row, source, outfit_id, file, crop_path, from_type, to_type,
+harmony_pct_before/after, trend_before/after, trend_known, d_harmony_z, d_trend_z, gain,
+what_changed: str} ×≤3 ]`, `also_improve [ {piece, selection_score, suggestion} ]`,
+`per_piece {file: {type, group, n_candidates, selection_score, best_gain, …}}`, `flags`,
+`provisional` (settings not yet calibrated). Serialises to JSON (`to_json()`).
 
 ## 4. Data flow (one photo)
 
 ```
 photo ─► M1 run_single_image ─► outfit_dir (metadata.json, *.png, *.npy)
             │
-            ├─► nodes = build_node_from_meta(...)           (M2, existing)
+            ├─► nodes = build_node_from_meta(...)           (M2, existing; area rescaled to the 98,304-px frame)
             ├─► r0 = GNN logit(nodes); T_i = M3 trend per piece   baseline
             └─► for each piece i:
                   cands = pool[swap_group(i)] ∩ cooc_ok(others)   (all of them; trend floor only with --no-trend-drop)
@@ -176,6 +213,12 @@ warm for `samples/image2.jpg` against the full demo pool, with VRAM capped at 6 
 - VRAM: chunk size derived from the 6 GB cap; on CUDA OOM, halve the chunk and retry. No GPU → CPU
   with a warning (slow, but correct).
 - Missing crop PNG for a suggestion → show the text row without the image.
+- **Photo size (area normalisation):** Module 1 reports `pixel_count` in raw pixels, and the GNN's
+  `volume_contrast` compares areas between pieces. Catalogue crops come from 256×384 photos, while user
+  photos can be any size, so each user piece's area is rescaled to the 98,304-px frame
+  (`area × 98,304 / (photo width × photo height)`, photo size read from M1's `<id>_vis.jpg`). Without
+  this, `samples/image2.jpg` (3.1× larger) would shift every edge value by ≈ 0.81 and phone photos would
+  saturate it. Pool rows stay as stored.
 
 ## 6. Evaluation (D9)
 

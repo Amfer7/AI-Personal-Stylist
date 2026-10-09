@@ -4,6 +4,7 @@ Fashion144k_v1/
 **/feature_store/
 PinterestData/pinterest_dataset/
 PinterestData/garment_data*/
+PinterestData/pinterest_data/
 Module4/cache/
 *.npy
 *.npz
@@ -26,6 +27,7 @@ samples/
 
 # ── Python ──
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 *.egg-info/
