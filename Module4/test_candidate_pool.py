@@ -16,22 +16,26 @@ SPEC_TEST_COUNTS = {"shoe": 28329, "pants": 19169, "bag": 17130, "jacket": 15025
                     "scarf": 3163, "top": 3131, "t_shirt": 2726, "belt": 1405, "sunglasses": 548, "shorts": 235}
 
 
-def test_every_store_row_is_in_the_pool_once(pool):
-    assert pool.n == 480079
+def test_every_store_row_is_in_the_pool_once(pool, settings):
+    rows = {s.name: np.load(settings.abs(os.path.join(s.store_dir, "node_scalars.npy")), mmap_mode="r").shape[0]
+            for s in settings.stores}
+    assert rows["fashion144k"] == 480079
+    assert pool.n == sum(rows.values())
+    for s in settings.stores:
+        assert int((pool.source == pool.source_id(s.name)).sum()) == rows[s.name]
     assert (pool.outfit_ord >= 0).all() and all(f for f in pool.files)
     assert (pool.type >= 0).all()
 
 
 def test_test_split_counts_match_spec(pool):
-    test = pool.split == SPLIT_CODES["test"]
+    test = (pool.split == SPLIT_CODES["test"]) & (pool.source == pool.source_id("fashion144k"))
     got = {t: int(((pool.type == TYPE_ID[t]) & test).sum()) for t in TYPES}
     assert got == SPEC_TEST_COUNTS
 
 
-def test_projection_cache_matches_model(pool, gnn, settings):
-    feat = np.load(settings.abs(os.path.join(settings.stores[0].store_dir, "features.npy")), mmap_mode="r")
+def test_projection_cache_matches_model(pool, gnn, pool_features):
     rows = np.sort(np.random.default_rng(0).choice(pool.n, 2000, replace=False))
-    want = gnn.project(torch.from_numpy(np.asarray(feat[rows])[:, FEATURE_COLS]))
+    want = gnn.project(torch.from_numpy(pool_features[rows][:, FEATURE_COLS]))
     assert torch.allclose(pool.proj[torch.as_tensor(rows, device=pool.device)], want, atol=1e-5)
 
 

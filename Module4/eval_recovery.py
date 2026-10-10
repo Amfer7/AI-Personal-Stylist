@@ -1,4 +1,4 @@
-"""Module 4 evaluation (spec §6, decision D9) on Fashion144k test outfits.
+"""Module 4 evaluation (spec §6, decision D9) on test outfits of one source (Fashion144k by default).
 
 Two disjoint, seeded outfit sets are drawn from the test split: **dev** (all tuning) and **report**
 (final numbers, run once with frozen settings). For every outfit:
@@ -21,6 +21,7 @@ detection limit: on the dev set its hit rate is no better than chance for harmon
 
     python Module4/eval_recovery.py --set dev --freeze     # calibrate, write m4_settings.json
     python Module4/eval_recovery.py --set report           # final numbers, once, frozen settings
+    python Module4/eval_recovery.py --set report --source pinterest   # same, on Pinterest test outfits
 """
 from __future__ import annotations
 
@@ -60,10 +61,10 @@ DROP_BINS = (-np.inf, 0.0, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, np.inf)
 
 
 # ---------------- outfit sets ----------------
-def eval_sets(pool, n: int, seed: int = SEED):
-    """Disjoint dev / report outfit keys: a seeded shuffle of test outfits with ≥ 2 garments."""
+def eval_sets(pool, n: int, seed: int = SEED, source: str = SOURCE):
+    """Disjoint dev / report outfit keys: a seeded shuffle of `source` test outfits with ≥ 2 garments."""
     keys = sorted((pool.outfit_key(int(rows[0])) for rows in test_outfits(pool) if
-                   pool.source_name(int(rows[0])) == SOURCE), key=int)
+                   pool.source_name(int(rows[0])) == source), key=int)
     order = np.random.default_rng(seed).permutation(len(keys))
     keys = [keys[i] for i in order]
     if 2 * n > len(keys):
@@ -80,10 +81,10 @@ def _ranks(g_cand, g_orig):
     return 1 + above + ties / 2, len(g_cand) + 1
 
 
-def evaluate_outfit(rec, key: str, rng) -> dict | None:
+def evaluate_outfit(rec, key: str, rng, source: str = SOURCE) -> dict | None:
     pool, s = rec.pool, rec.settings
-    state = state_from_pool(pool, SOURCE, key)
-    exclude = (SOURCE, key)
+    state = state_from_pool(pool, source, key)
+    exclude = (source, key)
     cand = [rec._candidates(state, i, "eval", exclude, False, False)[0] for i in range(len(state.pieces))]
     slots = [i for i, c in enumerate(cand) if len(c)]
     if not slots:
@@ -235,10 +236,10 @@ def summarise(records, rule: str, w: float, tau: float, n_boot: int = 2000) -> d
     return out
 
 
-def markdown(summary: dict, calib: dict | None, set_name: str) -> str:
+def markdown(summary: dict, calib: dict | None, set_name: str, source: str = SOURCE) -> str:
     s = summary
     L = [f"# Module 4 evaluation: {set_name} set", "",
-         f"{s['n_outfits']} Fashion144k test outfits · rule `{s['rule']}` · w_t = {s['w_t']} · τ = {s['tau']:.4f}",
+         f"{s['n_outfits']} {source} test outfits · rule `{s['rule']}` · w_t = {s['w_t']} · τ = {s['tau']:.4f}",
          "", "## Weak link and original recovery", "",
          "| Method | Hit rate (95% CI) | Recall@1 | Recall@3 | Recall@10 (95% CI) | Median % rank | p (hit vs M4) |",
          "|---|---|---|---|---|---|---|"]
@@ -280,10 +281,10 @@ def markdown(summary: dict, calib: dict | None, set_name: str) -> str:
 
 
 # ---------------- CLI ----------------
-def run_records(rec, keys, seed, label):
+def run_records(rec, keys, seed, label, source: str = SOURCE):
     out, skipped, t0 = [], 0, time.time()
     for j, key in enumerate(keys):
-        r = evaluate_outfit(rec, key, np.random.default_rng([seed, int(key)]))
+        r = evaluate_outfit(rec, key, np.random.default_rng([seed, int(key)]), source)
         if r is None:
             skipped += 1
         else:
@@ -305,14 +306,18 @@ def main(argv=None):
     ap.add_argument("--limit", type=int, help="evaluate only the first N outfits of the set (smoke runs; never frozen)")
     ap.add_argument("--freeze", action="store_true", help="dev: write the calibrated values to m4_settings.json")
     ap.add_argument("--force", action="store_true", help="report: allow a re-run")
+    ap.add_argument("--source", default=SOURCE, help="store whose test outfits are evaluated (candidates come from every store)")
     ap.add_argument("--device")
     args = ap.parse_args(argv)
+    if args.source != SOURCE and args.freeze:
+        ap.error("--freeze calibrates on the fashion144k dev set only")
 
     settings = M4Settings.load()
     out_dir = settings.abs(os.path.join(settings.cache_dir, "eval"))
     os.makedirs(out_dir, exist_ok=True)
-    tag = args.set + (f"_limit{args.limit}" if args.limit else "")
-    done = os.path.join(out_dir, "report_done.json")
+    prefix = "" if args.source == SOURCE else f"{args.source}_"
+    tag = prefix + args.set + (f"_limit{args.limit}" if args.limit else "")
+    done = os.path.join(out_dir, f"{prefix}report_done.json")
     if args.set == "report" and not args.limit:
         if settings.provisional():
             sys.exit(f"Settings still provisional ({', '.join(settings.provisional())}): run --set dev --freeze first")
@@ -320,11 +325,11 @@ def main(argv=None):
             sys.exit("The report set has already been run once; pass --force to run it again")
 
     rec = Recommender.from_settings(settings, args.device)
-    dev_keys, report_keys = eval_sets(rec.pool, args.n)
+    dev_keys, report_keys = eval_sets(rec.pool, args.n, source=args.source)
     keys = dev_keys if args.set == "dev" else report_keys
     if args.limit:
         keys = keys[:args.limit]
-    records = run_records(rec, keys, SEED, tag)
+    records = run_records(rec, keys, SEED, tag, args.source)
     with open(os.path.join(out_dir, f"{tag}_records.json"), "w", encoding="utf-8") as f:
         json.dump(records, f)
 
@@ -340,7 +345,7 @@ def main(argv=None):
     summary["calibration"] = calib
     with open(os.path.join(out_dir, f"{tag}_summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
-    md = markdown(summary, calib, tag)
+    md = markdown(summary, calib, tag, args.source)
     with open(os.path.join(out_dir, f"{tag}_report.md"), "w", encoding="utf-8") as f:
         f.write(md)
     print(md)

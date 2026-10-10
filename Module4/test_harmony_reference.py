@@ -23,7 +23,7 @@ def test_save_load_round_trip(tmp_path):
 
 
 @pytest.mark.real
-def test_reference_covers_all_test_outfits_and_matches_model(pool, gnn, settings):
+def test_reference_covers_all_test_outfits_and_matches_model(pool, gnn, settings, pool_features):
     import os
     from candidate_pool import pool_dir
     from m2_bridge import ATTR_MASK, BROAD_VOCAB, od
@@ -32,12 +32,12 @@ def test_reference_covers_all_test_outfits_and_matches_model(pool, gnn, settings
     assert len(ref.logits_sorted) == len(outs) > 40000
     assert ref.sigma_logit > 0 and ref.sigma_trend > 0
     # every size-7 test outfit, re-scored the slow M2 way, must appear in the reference
-    feat = np.load(settings.abs(os.path.join(settings.stores[0].store_dir, "features.npy")), mmap_mode="r")
     for rows in [o for o in outs if len(o) == 7]:
-        nodes = [{"embedding": np.asarray(feat[r, :512]), "colour": np.asarray(feat[r, 512:544]),
-                  "attr_feat": np.asarray(feat[r, 544:]), "category": BROAD_VOCAB[pool.broad[r]],
+        feat = pool_features[rows]
+        nodes = [{"embedding": f[:512], "colour": f[512:544], "attr_feat": f[544:],
+                  "category": BROAD_VOCAB[pool.broad[r]],
                   "hue": float(pool.hue[r]), "formality": float(pool.formality[r]), "area": float(pool.area[r])}
-                 for r in rows]
+                 for r, f in zip(rows, feat)]
         g = od.OutfitDataset.build_graph(nodes, 0.0, attr_mask=ATTR_MASK)
         with torch.no_grad():
             want = float(gnn.model(g["x"].to(gnn.device), g["edge_index"].to(gnn.device),

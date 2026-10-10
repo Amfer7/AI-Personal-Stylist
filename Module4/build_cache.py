@@ -42,9 +42,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--device", default=None)
+    ap.add_argument("--settings", default=None, help="another settings JSON (default: Module4/m4_settings.json)")
     args = ap.parse_args(argv)
 
-    s = M4Settings.load()
+    s = M4Settings.load(args.settings) if args.settings else M4Settings.load()
     dev = pick_device(args.device)
     apply_vram_cap(s.vram_gb, dev)
     if is_fresh(s) and not args.force:

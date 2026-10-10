@@ -13,10 +13,10 @@ pytestmark = pytest.mark.real
 
 
 def _nodes(pool, feat, rows):
-    return [{"embedding": np.asarray(feat[r, :512]), "colour": np.asarray(feat[r, 512:544]),
-             "attr_feat": np.asarray(feat[r, 544:]), "category": BROAD_VOCAB[pool.broad[r]],
+    return [{"embedding": f[:512], "colour": f[512:544], "attr_feat": f[544:],
+             "category": BROAD_VOCAB[pool.broad[r]],
              "hue": float(pool.hue[r]), "formality": float(pool.formality[r]), "area": float(pool.area[r])}
-            for r in rows]
+            for r, f in zip(rows, feat[rows])]
 
 
 def _model_logit(gnn, nodes):
@@ -27,9 +27,8 @@ def _model_logit(gnn, nodes):
 
 
 @pytest.fixture(scope="module")
-def feat(settings):
-    import os
-    return np.load(settings.abs(os.path.join(settings.stores[0].store_dir, "features.npy")), mmap_mode="r")
+def feat(pool_features):
+    return pool_features
 
 
 def test_outfit_and_swap_logits_match_model(pool, gnn, feat):
@@ -38,7 +37,7 @@ def test_outfit_and_swap_logits_match_model(pool, gnn, feat):
     outs = test_outfits(pool)
     for rows in rng.sample(outs, 20):
         key = pool.outfit_key(int(rows[0]))
-        st = state_from_pool(pool, "fashion144k", key)
+        st = state_from_pool(pool, pool.source_name(int(rows[0])), key)
         rows = [p.pool_row for p in st.pieces]
         assert abs(sc.outfit_logit(st) - _model_logit(gnn, _nodes(pool, feat, rows))) < 1e-4
         i = rng.randrange(len(rows))

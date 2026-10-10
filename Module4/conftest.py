@@ -46,6 +46,21 @@ def pool(settings, device):
 
 
 @pytest.fixture(scope="session")
+def pool_features(settings, pool):
+    """Feature-store rows by pool row, across every store: pool_features[rows] -> (len(rows), ROW_DIM)."""
+    import numpy as np
+    stores = [np.load(settings.abs(os.path.join(s.store_dir, "features.npy")), mmap_mode="r")
+              for s in settings.stores]
+
+    class _Features:
+        def __getitem__(self, rows):
+            rows = np.atleast_1d(np.asarray(rows))
+            return np.stack([stores[pool.source[r]][pool.store_row[r]] for r in rows])
+
+    return _Features()
+
+
+@pytest.fixture(scope="session")
 def recommender(settings, device, pool, gnn):
     from recommender import Recommender
     return Recommender.from_settings(settings, device, pool=pool, gnn=gnn)
