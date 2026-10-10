@@ -171,3 +171,15 @@ def test_json_round_trip_and_text():
     assert again == r
     assert "SWAP your shirt_blouse" in format_text(r)
     assert r.provisional == rec.settings.provisional()
+
+
+def test_decide_takes_the_harmony_weight():
+    rec, st, _ = make()
+    table = rec.score(st)
+    # shirt_blouse candidates: ΔH = 3, 2.9, 2, 1, 0.5; ΔT = 1, -1, 2, 0 (unknown), 0.5 (worn trend 50, σ_trend 10)
+    r = rec.decide(table, w_t=0.5, w_h=0.5)
+    assert r.weights == {"w_h": 0.5, "w_t": 0.5}
+    assert r.per_piece["shirt_blouse_0.png"]["best_gain"] == pytest.approx(2.0)
+    r_default = rec.decide(table, w_t=0.5)                 # w_h falls back to settings (1.0 here)
+    assert r_default.weights == {"w_h": 1.0, "w_t": 0.5}
+    assert r_default.per_piece["shirt_blouse_0.png"]["best_gain"] == pytest.approx(3.5)

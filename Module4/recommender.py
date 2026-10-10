@@ -120,13 +120,14 @@ class Recommender:
             d_harmony_z=float(ps.d_h[k]), d_trend_z=float(ps.d_t[k]), gain=float(gain),
             what_changed=what_changed(p.describe(), pool.describe(row), others))
 
-    def decide(self, table, w_t=None, rule=None) -> Recommendation:
+    def decide(self, table, w_t=None, rule=None, w_h=None) -> Recommendation:
         s = self.settings
         w_t = s.w_t if w_t is None else float(w_t)
+        w_h = s.w_h if w_h is None else float(w_h)
         rule = rule or s.rule
         tau, eps = float(s.tau[rule]), float(s.eps)
         pieces = table.state.pieces
-        G = [combine(ps.d_h, ps.d_t, s.w_h, w_t) for ps in table.pieces]
+        G = [combine(ps.d_h, ps.d_t, w_h, w_t) for ps in table.pieces]
         S = [selection_score(g, rule, s.topk) for g in G]
         per_piece = {}
         for p, ps, g, sc in zip(pieces, table.pieces, G, S):
@@ -168,7 +169,7 @@ class Recommender:
                                for x in diverse_top(gs, keys, np.ones(gs.size, bool))]
         known = [p.trend for p in pieces if not np.isnan(p.trend)]
         return Recommendation(
-            verdict=verdict, selection_rule=rule, pool_mode=table.mode, weights={"w_h": s.w_h, "w_t": w_t},
+            verdict=verdict, selection_rule=rule, pool_mode=table.mode, weights={"w_h": w_h, "w_t": w_t},
             thresholds={"tau": tau, "eps": eps},
             baseline={"harmony_pct": self.reference.pct(table.r0), "harmony_logit": float(table.r0),
                       "trend_mean": float(np.mean(known)) if known else None},
