@@ -175,10 +175,11 @@ Or use the repo-root web demo: `python demo.py`, then choose **Module 2**.
 
 | File | Role |
 |---|---|
-| `01_segment_batch.py` | Bulk Module 1 over Fashion144k (resumable, circuit breaker) |
+| `01_segment_batch.py` | Bulk Module 1 over Fashion144k (resumable, circuit breaker). Its loop, `segment_photos()`, is shared with the Pinterest store mode so both stores come from one code path |
 | `02_outfit_dataset.py` | Graph building: node/edge features, colour histograms, dataset class |
 | `03_train_gnn.py` | The model (`CLIPOutfitGNN`), BPR training, AUC evaluation, variant flags |
-| `build_feature_store.py` | One-time memory-mapped feature cache |
+| `build_feature_store.py` | One-time memory-mapped feature cache. `--photo_sizes` + `--area_frame_px 98304` rescale areas for stores whose photos aren't 256×384 (Pinterest) |
+| `auc_gate.py` | Module 4 Phase 0 gate: the same real-vs-corrupted AUC on Fashion144k and Pinterest test outfits; passes if Pinterest is within 0.03 |
 | `demo_score.py` | Scores a photo as a percentile; real-vs-corrupted demo figure |
 | `run_all.py` | One-command runner (`segment` / `train` / `all`) |
 

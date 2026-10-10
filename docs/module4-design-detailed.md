@@ -102,7 +102,15 @@ M4 does for user photos (§5). Otherwise every Pinterest candidate looks oversiz
 Fashion144k and user pieces.
 
 **Step 0.3: Pinterest split.** Seeded, outfit-level (= photo-level) train / val / test, matching
-Fashion144k's proportions (~60 / 10 / 30).
+Fashion144k's proportions (~60 / 10 / 30). Identical image files (same MD5) share a split.
+
+**Built (2026-10-09):** steps 0.2–0.6 are implemented and were debugged on a 2,000-photo pilot of the
+224×224 copies; see the runbook in [`next-steps.md`](next-steps.md). Layout: one gitignored store
+folder, `PinterestData/store/` (`photos.csv`, `split.json`, `outputs/`, `feature_store/`, trend
+manifest), rather than separate top-level folders. Two findings: the metadata `hash` column is the MD5
+of each per-query download, so it can't group identical images (store mode hashes the files); and the
+raw scrape holds originals for only 54% of pins, skewed by month and query, so the complete
+full-resolution set is needed.
 
 **Step 0.4: AUC gate.** Run M2's existing real-vs-corrupted test (`make_negative_sample`) on
 Pinterest test outfits with ≥ 2 garments.

@@ -1,7 +1,7 @@
 # Module 4: Swap Recommendation
 
-**Status: built and evaluated on Fashion144k; all settings calibrated.** Pinterest joins the catalogue
-after Phase 0; the demo integration is next.
+**Status: built, evaluated on both catalogues (Fashion144k + Pinterest), all settings calibrated, and
+in the demo** (`python demo.py`, pick **Module 4** or **All**).
 
 **In one line:** given an outfit photo, says **which one piece to change and what to change it to**,
 using Module 2 (harmony) and Module 3 (trend) to judge every possible replacement. If the outfit is
@@ -34,14 +34,27 @@ python Module4/run_recommend.py --outfit_dir <M1 output folder> --pool eval --js
 # Options: --pool demo|eval   --rule max_gain|topk_mean_gain|slot_percentile   --w-t 0.3
 #          --same-type (strict like-for-like)   --no-trend-drop (trend floor)   --device cpu
 
+# Demo (all four modules, live trend-weight slider, "Try this swap" board)
+python demo.py                 # --vram-gb 4 for a smaller GPU
+# Slide figures -> demos/recommendation_tradeoff.png, demos/recommendation_demo.png
+python Module4/render_recommendation.py --tradeoff --examples
+
 # 3. Evaluation (spec §6): calibrate on the dev set, then run the report set once
 python Module4/eval_recovery.py --set dev --freeze    # ~5 min; writes the calibrated settings
-python Module4/eval_recovery.py --set report          # ~5 min; refuses a second run without --force
+python Module4/eval_recovery.py --set report          # ~5 min; refuses a second run without --force (add --source pinterest for Pinterest outfits)
 
 # 4. Tests
 python -m pytest Module4                  # everything (needs the data + a built cache)
 python -m pytest Module4 -m "not real"    # unit tests only; run anywhere
 ```
+
+`render_recommendation.py` needs scipy. For the slide examples it picks, per verdict, the first
+report-set outfit whose drawn crops are all readable (`crop_readable`: at least 4,000 opaque pixels, the
+largest connected piece at least 85% of them, and that piece filling at least 35% of its bounding box),
+because first-match examples turned out to be fragmentary crops.
+
+The browser click-through of the demo (slider responsiveness, "Try this swap" redraw) has not yet been
+checked by hand; the automated tests cover the headless behaviour.
 
 The cache goes to `Module4/cache/` (gitignored): `pool/` (projection, metadata, co-occurrence,
 harmony reference, fingerprint), `dup_calibration/` (contact sheets), `runs/` (Module 1 output for
@@ -94,41 +107,52 @@ candidate is scored; nothing is sampled.
 
 ## Evaluation results
 
-**Protocol** (spec §6). Two disjoint, seeded sets of 2,000 Fashion144k test outfits: **dev** for all
-tuning, **report** for the final numbers, run once with frozen settings. In every outfit one random piece
-is **corrupted**: swapped for a random garment from the same swap group that passes the co-occurrence
-filter, which is exactly the space M4 searches. M4 then looks for replacements in the test split only
-(the **eval pool**), never the outfit itself or its reposts.
+**Protocol** (spec §6). Per catalogue, two disjoint, seeded sets of 2,000 test outfits: **dev** for all
+tuning (Fashion144k only), **report** for the final numbers, run with frozen settings. In every outfit
+one random piece is **corrupted**: swapped for a random garment from the same swap group that passes the
+co-occurrence filter, which is exactly the space M4 searches. M4 then looks for replacements in the
+test split of **both** catalogues (the **eval pool**), never the outfit itself or its reposts.
 
-**Report set** (rule `slot_percentile`, w_t = 0.2, τ = 0.333; 95% bootstrap CIs):
+**History.** First calibrated and reported on 2026-10-09 with a Fashion144k-only pool (71.8%). When
+Pinterest joined (2026-10-10) the trend model was refit and the harmony reference changed, so the
+settings were recalibrated on the same dev set and both report sets run; the Fashion144k report set
+was re-run with `--force` because the system changed. The 9 Oct results are kept in
+`Module4/cache/eval_2026-10-09_f144k_only/`.
 
-| Method | Finds the corrupted piece | Original garment's median rank | Original in top 10 |
+**Report sets** (rule `slot_percentile`, w_t = 0.2, τ = 0.392; 95% bootstrap CIs):
+
+| Method | Fashion144k: finds the corrupted piece | Pinterest: finds the corrupted piece | Original's median rank (F / P) |
 |---|---|---|---|
-| **M4** | **71.8%** (69.8–73.7) | **top 4.8%** | 3.2% |
-| CLIP coherence (no GNN) | 38.6% | top 34.5% | 0.6% |
-| Random | 30.4% | top 50.6% | 0.0% |
-| Trend only | 32.4% | top 48.3% | 0.0% |
-| Chance (1 / pieces) | 31.4% | top 50% | |
+| **M4** | **72.2%** (70.2–74.1) | **69.3%** (67.3–71.3) | **top 4.8% / 5.4%** |
+| CLIP coherence (no GNN) | 42.2% | 42.7% | top 31.5% / 31.9% |
+| Random | 30.4% | 37.8% | top 50.6% / 49.9% |
+| Trend only | 32.6% | 34.5% | top 45.5% / 52.2% |
+| Chance (1 / pieces) | 31.4% | 36.0% | top 50% |
 
-All baselines are below M4 at p < 1e-99 (exact McNemar test).
+All baselines are below M4 at p < 1e-60 on both catalogues (exact McNemar test).
 
-- **Harder when the corruption is subtle.** M4 finds 52% of subtle corruptions (mean harmony drop
-  0.21σ), 78% of medium ones (1.22σ) and 86% of obvious ones (2.40σ).
-- **Original recovery is the independent evidence** (what the person actually wore), and it's mixed.
-  The original lands in the top 5% of 10,000–38,000 candidates, far above every baseline. It's rarely
-  the very top pick, though: the GNN rates its own top pick above the original in 95% of outfits. So
-  M4 agrees with human choices broadly, not exactly.
-- **Verdicts.** At τ, M4 says "swap" for 75% of corrupted outfits and for 21% of real ones. That 21% is an
-  upper bound on false alarms, since some real outfits can be improved.
-- **Trend costs some accuracy.** Going from w_t = 0 to 0.2 makes the top suggestion much trendier (mean
-  ΔT 0.04σ → 1.51σ) while keeping 94% of the harmony gain, but detection drops from 75.4% to 71.8%.
-  The demo slider lets users choose.
-- **Selection rules barely differ:** `max_gain` 71.5%, `topk_mean_gain` 72.1%, `slot_percentile` 71.8%.
-  `slot_percentile` won on dev (73.1% at w_t = 0). Its edge over `topk_mean_gain` isn't significant
-  (p = 0.37); its edge over `max_gain` is (p = 0.015).
+- **Pinterest is only ~3 points lower,** although the GNN's own AUC drops 0.09 on Pinterest (0.727 vs
+  0.816; it was trained on 2010s Fashion144k). Hit rate compares pieces *within* one outfit, so an
+  error that shifts a whole outfit's score cancels out. Fine-tuning the GNN is deferred (see
+  `docs/next-steps.md`).
+- **Harder when the corruption is subtle.** Fashion144k 55% / 74% / 88% (subtle / medium / obvious);
+  Pinterest 53% / 72% / 82%.
+- **Original recovery is the independent evidence** (what the person actually wore). The original lands
+  in the top ~5% of candidates on both catalogues, far above every baseline, but is rarely the very top
+  pick: the GNN rates its own top pick above the original in 96–97% of outfits.
+- **Verdicts.** At τ, M4 says "swap" for 70% of corrupted outfits and for 16% (Fashion144k) / 17%
+  (Pinterest) of real ones, an upper bound on false alarms. Before recalibration it was 75% / 21%.
+- **Trend costs some accuracy.** From w_t = 0 to 0.2 the top suggestion's trend gain rises from ~0σ to
+  1.55σ (Fashion144k) / 1.42σ (Pinterest) while keeping 94% / 93% of the harmony gain; hit rate drops
+  75.7% → 72.2% / 72.9% → 69.3%. The demo slider lets users choose
+  (`demos/recommendation_tradeoff.png`).
+- **Selection rules barely differ:** Fashion144k 70.0 / 70.5 / 72.2%, Pinterest 68.9 / 68.8 / 69.3%
+  (`max_gain` / `topk_mean_gain` / `slot_percentile`).
+- **Limits.** Corruptions are random same-group garments, so these numbers measure catching clear
+  intruders, not taste; mixed outfits (one catalogue's piece in the other's outfit) are suggested but
+  not separately tested. The human study is the independent check.
 
-Full tables (per swap group, per harmony drop, the whole weight sweep) are written to
-`Module4/cache/eval/report_report.md` by the evaluation run.
+Full tables are written to `Module4/cache/eval/report_report.md` and `pinterest_report_report.md`.
 
 ## Settings (all calibrated)
 
@@ -136,9 +160,11 @@ Full tables (per swap group, per harmony drop, the whole weight sweep) are writt
 |---|---|---|
 | Selection rule | `slot_percentile` | Highest dev hit rate at w_t = 0 (spec D2) |
 | Trend weight | w_t = 0.2, w_h = 0.8 | Largest weight keeping ≥ 90% of the harmony-only gain on dev (D3). Gain = (1 − w)·ΔH + w·ΔT |
-| Swap threshold τ | 0.333 for `slot_percentile` (also stored for the other rules) | Best balanced accuracy, real vs corrupted dev outfits (D7) |
+| Swap threshold τ | 0.392 for `slot_percentile` (0.333 before Pinterest joined; also stored for the other rules) | Best balanced accuracy, real vs corrupted dev outfits (D7) |
 | Refresh tolerance ε | 0.2σ | M4's detection limit: on dev its hit rate is no better than chance for harmony drops below ~0.2σ, so a smaller loss "keeps the look" |
 | Near-duplicate rule | CLIP cosine ≥ 0.99, colour-histogram L1 ≤ 0.25, size ratio ≤ 1.25 | See "Reposts and near-duplicates" below |
+
+Recalibrated 2026-10-10 on the both-catalogue pool; rule, w_t and ε came out unchanged.
 
 ## Reposts and near-duplicates
 
@@ -164,13 +190,18 @@ your own item out of your suggestions (D8b).
   pieces (`volume_contrast`). Catalogue garments come from 256×384 photos, but a user's photo can be any
   size. A phone photo would make every catalogue piece look tiny next to the user's own. So when a user
   outfit is loaded, each piece's area is rescaled to the same 98,304-pixel frame:
-  `area × 98,304 / (photo width × photo height)`. Phase 0 must store Pinterest areas in that frame too.
+  `area × 98,304 / (photo width × photo height)`. Pinterest photos are resized to that frame before Module 1 (PinterestData/build_resized.py).
 - **Uses the relative `file` field, never `crop_path`.** `crop_path` in the Fashion144k metadata is an
   absolute path from an older machine.
 - **GPU memory is capped at 6 GB** (the GPU is shared) through `vram_gb` in the settings.
+- **Catalogue crop quality.** Some pool garments carry wrong Module 1 type labels (for example a
+  Pinterest crop of sneakers labelled "top", a sweatshirt labelled "jacket", denim shorts labelled
+  "pants"), and some Pinterest crops contain the pin's overlaid text. These can appear in live
+  suggestions. Recorded as open in [`docs/next-steps.md`](../docs/next-steps.md).
 
 ## Next
 
-1. **Phase 0** code for Pinterest (debugged on the 224×224 copies), then the **demo integration** (D10).
-2. When full-resolution Pinterest arrives: rebuild, re-run the evaluation for both sources, human study.
+1. **Human study** (spec §6.4): blind pairwise preferences on outfit boards (`outfit_board.py`).
+2. **GNN fine-tune on both catalogues** (deferred; see `docs/next-steps.md`).
+3. Re-check the near-duplicate threshold on the mixed pool (`calibrate_dup.py`, needs a visual check).
    See [`docs/next-steps.md`](../docs/next-steps.md).
