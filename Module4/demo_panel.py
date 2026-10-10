@@ -35,10 +35,14 @@ def verdict_markdown(r) -> str:
     return "\n\n".join(lines)
 
 
+def _change(from_type, to_type) -> str:
+    return f"{from_type} → {to_type}" if from_type != to_type else f"{from_type} (same type)"
+
+
 def _caption(s) -> str:
     trend = ("" if s.trend_before is None or s.trend_after is None
              else f" · trend {s.trend_before:.0f}→{s.trend_after:.0f}")
-    return (f"{s.from_type} → {s.to_type} · harmony {s.harmony_pct_before:.0f}→{s.harmony_pct_after:.0f}"
+    return (f"{_change(s.from_type, s.to_type)} · harmony {s.harmony_pct_before:.0f}→{s.harmony_pct_after:.0f}"
             f"{trend} · {s.source}\n{s.what_changed}")
 
 
@@ -65,8 +69,8 @@ def choices(r) -> list:
 
 
 def choice_labels(r) -> list:
-    top = [f"{i}. {s.from_type} → {s.to_type} ({s.source})" for i, s in enumerate(r.suggestions, 1)]
-    also = [f"Also: {a['piece']}: {a['suggestion'].from_type} → {a['suggestion'].to_type}"
+    top = [f"{i}. {_change(s.from_type, s.to_type)} ({s.source})" for i, s in enumerate(r.suggestions, 1)]
+    also = [f"Also: {a['piece']}: {_change(a['suggestion'].from_type, a['suggestion'].to_type)}"
             for a in r.also_improve]
     return top + also
 
@@ -90,6 +94,6 @@ def swap_board(r, state, pool, settings, index: int, out_path: str):
              else (piece_crop(state, p, pool, settings), p.type, False) for p in state.pieces]
     trend = ("" if s.trend_before is None or s.trend_after is None
              else f" · piece trend {s.trend_before:.0f} → {s.trend_after:.0f}")
-    text = (f"{s.from_type} → {s.to_type} · Harmony {s.harmony_pct_before:.0f} → "
+    text = (f"{_change(s.from_type, s.to_type)} · Harmony {s.harmony_pct_before:.0f} → "
             f"{s.harmony_pct_after:.0f}/100{trend} · from {s.source}")
     return outfit_board(tiles, out_path), text

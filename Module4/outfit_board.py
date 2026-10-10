@@ -28,10 +28,13 @@ def _font(size: int):
 def _fit(path):
     if not path or not os.path.exists(path):
         return None
-    with Image.open(path) as im:
-        im = im.convert("RGBA")
-        im.thumbnail((TILE - 2 * BORDER, TILE - 2 * BORDER))
-        return im.copy()
+    try:
+        with Image.open(path) as im:
+            im = im.convert("RGBA")
+            im.thumbnail((TILE - 2 * BORDER, TILE - 2 * BORDER))
+            return im.copy()
+    except OSError:     # corrupt or unreadable file (PIL's UnidentifiedImageError is an OSError)
+        return None
 
 
 def outfit_board(tiles, out_path: str, title: str | None = None) -> str:

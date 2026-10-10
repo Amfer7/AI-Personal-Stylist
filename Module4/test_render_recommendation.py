@@ -79,7 +79,17 @@ def test_crop_readable_ignores_small_speck(tmp_path):
 
 
 def test_crop_readable_specks(tmp_path):
-    a = np.zeros((120, 120), np.uint8)
-    a[::10, ::10] = 255
-    a[119, 119] = 255
+    a = np.zeros((400, 400), np.uint8)
+    for y in range(0, 400, 12):
+        for x in range(0, 400, 12):
+            a[y:y + 6, x:x + 6] = 255   # >4000 opaque px, but no component holds 85% of them
+    assert (a > 0).sum() > 4000
     assert not crop_readable(_png(tmp_path / "k.png", a))
+
+
+def test_crop_readable_hollow_shape_fails_fill(tmp_path):
+    a = np.zeros((300, 300), np.uint8)
+    a[:] = 255
+    a[4:-4, 4:-4] = 0   # one connected ring, 4 px thick: >4000 px, bounding-box fill ~0.05
+    assert (a > 0).sum() >= 4000
+    assert not crop_readable(_png(tmp_path / "r.png", a))

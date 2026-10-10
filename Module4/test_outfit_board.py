@@ -28,3 +28,10 @@ def test_board_layout_highlight_and_placeholder(tmp_path):
 def test_title_adds_a_band(tmp_path):
     out = outfit_board([(None, "hat", False)], str(tmp_path / "t.png"), title="Swap your hat")
     assert Image.open(out).size[1] == 36 + PAD + TILE + CAPTION_H + PAD
+
+
+def test_corrupt_image_draws_placeholder(tmp_path):
+    bad = tmp_path / "bad.png"
+    bad.write_bytes(b"not an image")
+    out = outfit_board([(str(bad), "x", False)], str(tmp_path / "c.png"))
+    assert Image.open(out).convert("RGB").getpixel((PAD + 5, PAD + 5)) == PLACEHOLDER

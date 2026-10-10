@@ -111,28 +111,32 @@ def _get_recommender(device=None):
     return _recommender
 
 
-def _get_scorer():
-    """Module 2: PhotoScorer, ranking against Module 4's harmony reference and reusing its GNN
-    when Module 4 is already loaded."""
+def _reference_path():
+    from candidate_pool import pool_dir
+    return os.path.join(pool_dir(SETTINGS), "reference.json")
+
+
+def _get_scorer(device=None):
+    """Module 2: PhotoScorer, ranking against Module 4's harmony reference and reusing Module 4's
+    GNN (loading Module 4 first), so there is only ever one GNN copy."""
     global _scorer
     if _scorer is None:
-        from candidate_pool import pool_dir
         from harmony_reference import HarmonyReference
-        ref = HarmonyReference.load(os.path.join(pool_dir(SETTINGS), "reference.json"))
+        ref = HarmonyReference.load(_reference_path())
+        model = _get_recommender(device).gnn.model
         ds_mod = _load_module(os.path.join(MOD2, "demo_score.py"), "m2_demo_score")
-        model = _recommender.gnn.model if _recommender is not None else None
         _scorer = ds_mod.PhotoScorer(checkpoint=CKPT, model=model, reference=ref.logits_sorted)
     return _scorer
 
 
-def _get_trend():
-    """Module 3: the trend model Module 4 uses (shared when Module 4 is loaded) + its renderer."""
+def _get_trend(device=None):
+    """Module 3: the trend model Module 4 uses (loading Module 4 first, so it is shared) + its renderer."""
     global _trend
     if _trend is None:
         rt = _load_module(os.path.join(MOD3, "render_trend_demo.py"), "m3_render")
-        if _recommender is not None:
-            model = _recommender.trend_model
-        else:
+        if os.path.exists(_reference_path()):
+            model = _get_recommender(device).trend_model
+        else:        # Module 4 cache not built: Module 3 still works on its own
             from trend_model import PerCategoryTrendModel
             model = PerCategoryTrendModel.load(TREND_MODEL)
         _trend = (model, rt.render)
@@ -140,11 +144,11 @@ def _get_trend():
 
 
 # ---- Module 2 and Module 4 steps (also called by the tests) ----
-def run_module2(outfit_dir, image_path, out_png):
+def run_module2(outfit_dir, image_path, out_png, device=None):
     """Harmoniousness on Module 4's 98,304-px area frame, so it matches Module 4's baseline."""
     from outfit_state import REFERENCE_FRAME_PX, photo_pixels
     px = photo_pixels(outfit_dir)
-    return _get_scorer().score_photo(outfit_dir, image_path, out_png,
+    return _get_scorer(device).score_photo(outfit_dir, image_path, out_png,
                                      area_scale=REFERENCE_FRAME_PX / px if px else 1.0)
 
 
@@ -189,7 +193,10 @@ def try_swap(st, label):
     if not st or not label:
         return None, ""
     rec, r = _get_recommender(), st["rec"]
-    return swap_board(r, st["table"].state, rec.pool, rec.settings, choice_labels(r).index(label), BOARD_PNG)
+    labels = choice_labels(r)
+    if label not in labels:
+        return None, "That option is no longer listed: press Run again."
+    return swap_board(r, st["table"].state, rec.pool, rec.settings, labels.index(label), BOARD_PNG)
 
 
 def analyze(image_path, module, device, pool_mode, same_type, no_trend_drop, rule, w_t):
@@ -206,6 +213,8 @@ def analyze(image_path, module, device, pool_mode, same_type, no_trend_drop, rul
     if (want_trend or want_m4) and not os.path.exists(TREND_MODEL):
         return (None, None, None, f"Trend model missing: {TREND_MODEL}\n"
                                   "Fit it with: python Module3/fit_per_category.py") + _m4_empty()
+    if (want_harmony or want_m4) and not os.path.exists(_reference_path()):
+        return (None, None, None, "Module 4 cache missing: run python Module4/build_cache.py") + _m4_empty()
 
     os.makedirs(DEMOS, exist_ok=True)
     outfit_dir = os.path.join(DEMO_OUT, IMAGE_ID)
@@ -236,7 +245,7 @@ def analyze(image_path, module, device, pool_mode, same_type, no_trend_drop, rul
         harmony_out = None
         if want_harmony:
             log.append(">> Module 2 — GNN Harmoniousness score")
-            score, corr = run_module2(outfit_dir, image_path, harmony_png)
+            score, corr = run_module2(outfit_dir, image_path, harmony_png, dev)
             log.append(f"   Harmoniousness = {score:.0f}/100"
                        + (f"   (drops to {corr:.0f}/100 if one garment is swapped)"
                           if corr is not None else ""))
@@ -245,7 +254,7 @@ def analyze(image_path, module, device, pool_mode, same_type, no_trend_drop, rul
         trend_out = None
         if want_trend:
             log.append(">> Module 3 — per-garment Pinterest trendiness")
-            trend_model, render_trend = _get_trend()
+            trend_model, render_trend = _get_trend(dev)
             _, result = render_trend(outfit_dir, image_path, trend_png, model=trend_model)
             for g in result["garments"]:
                 s = g["trendiness_score"]
@@ -306,10 +315,10 @@ def build_ui():
                                  label="Outfit photo (upload or paste)")
                 module = gr.Radio([MODULE_1, MODULE_2, MODULE_3, MODULE_4, ALL], value=ALL,
                                   label="Which module to run")
-                device = gr.Radio(["auto", "cuda", "cpu"], value="auto", label="Device")
+                device = gr.Radio(["auto", "cuda", "cpu"], value="auto", label="Device (applies on the first run)")
                 w_t = gr.Slider(0.0, 1.0, value=SETTINGS.w_t, step=0.05,
                                 label="Trend weight (Module 4): 0 = harmony only, 1 = trend only")
-                with gr.Accordion("Module 4 advanced options", open=False):
+                with gr.Accordion("Module 4 advanced options (pool, same type and trend floor apply on the next Run)", open=False):
                     pool = gr.Radio(POOLS, value="demo",
                                     label="Candidate pool (demo = all garments, eval = test split only)")
                     same_type = gr.Checkbox(False, label="Same type only (strict like-for-like)")

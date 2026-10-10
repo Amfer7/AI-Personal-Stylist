@@ -3,7 +3,9 @@ import os
 
 from PIL import Image
 
-from demo_panel import (PER_PIECE_HEADERS, also_markdown, choice_labels, choices, gallery_items,
+from outfit_board import HIGHLIGHT, PAD, TILE
+
+from demo_panel import (PER_PIECE_HEADERS, _change, also_markdown, choice_labels, choices, gallery_items,
                         outfit_tiles, per_piece_rows, swap_board, verdict_markdown)
 from test_recommender_logic import make
 
@@ -48,3 +50,11 @@ def test_swap_board_replaces_the_right_piece(tmp_path):
     assert text.startswith("shirt_blouse → t_shirt") and "Harmony" in text
     tiles = outfit_tiles(table.state, rec.pool, rec.settings)
     assert [t[1] for t in tiles] == ["shirt_blouse", "skirt", "leggings", "shoe"]
+    im = Image.open(out).convert("RGB")
+    assert im.getpixel((PAD + 1, PAD + 1)) == HIGHLIGHT                       # swapped tile (index 0)
+    assert im.getpixel((PAD + TILE + PAD + 1, PAD + 1)) != HIGHLIGHT          # an unswapped tile
+
+
+def test_change_marks_same_type():
+    assert _change("shirt", "t_shirt") == "shirt → t_shirt"
+    assert _change("shirt", "shirt") == "shirt (same type)"

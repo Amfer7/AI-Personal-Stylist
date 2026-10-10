@@ -29,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-from demo_panel import outfit_tiles, piece_crop, swap_board  # noqa: E402
+from demo_panel import _change, outfit_tiles, piece_crop, swap_board  # noqa: E402
 from m4_settings import REPO, M4Settings  # noqa: E402
 from outfit_board import outfit_board  # noqa: E402
 
@@ -37,7 +37,7 @@ SERIES = {"fashion144k": ("#2a78d6", "Fashion144k"), "pinterest": ("#eb6834", "P
 SUMMARIES = {"fashion144k": "report_summary.json", "pinterest": "pinterest_report_summary.json"}
 TEXT, TEXT2, GRID = "#0b0b0b", "#52514e", "#e6e5e0"
 VERDICTS = ("swap", "refresh", "keep")
-HEADLINE = {"swap": "Swap: {piece} → {to}", "refresh": "Refresh: already strong, a trendier option",
+HEADLINE = {"swap": "Swap: {change}", "refresh": "Refresh: already strong, a trendier option",
             "keep": "Keep: already strong"}
 # slide legibility: fragmentary SegFormer crops (tiny, split, specked) read as noise on a slide
 MIN_AREA, MIN_MAIN, MIN_FILL = 4000, 0.85, 0.35
@@ -50,13 +50,14 @@ def crop_readable(path, min_area: int = MIN_AREA, min_main: float = MIN_MAIN,
     if not path or not os.path.exists(path):
         return False
     try:
-        alpha = np.asarray(Image.open(path).convert("RGBA"))[..., 3] > 0
+        with Image.open(path) as im:
+            alpha = np.asarray(im.convert("RGBA"))[..., 3] > 0
     except Exception:
         return False
     total = int(alpha.sum())
     if total < min_area:
         return False
-    labels, n = ndimage.label(alpha, structure=np.ones((3, 3)))
+    labels, _ = ndimage.label(alpha, structure=np.ones((3, 3)))
     sizes = np.bincount(labels.ravel())[1:]
     main = int(sizes.argmax()) + 1
     if sizes.max() / total < min_main:
@@ -168,7 +169,7 @@ def render_examples(rec, found: dict, out_path: str) -> str:
             else:
                 swap_board(r, table.state, rec.pool, rec.settings, 0, png)
                 s = r.suggestions[0]
-                head = HEADLINE[v].format(piece=s.from_type, to=s.to_type)
+                head = HEADLINE[v].format(change=_change(s.from_type, s.to_type))
             s0 = r.suggestions[0] if r.suggestions else None
             nums = (f"harmony {s0.harmony_pct_before:.0f} → {s0.harmony_pct_after:.0f}" if s0
                     else f"harmony {r.baseline['harmony_pct']:.0f}")
