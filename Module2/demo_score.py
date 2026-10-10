@@ -100,7 +100,12 @@ class PhotoScorer:
                  relvotes_mat=os.path.join(HERE, "../Fashion144k_v1/feat/relvotes.mat"),
                  output_root=os.path.join(HERE, "../Fashion144k_v1/outputs"),
                  feature_store=os.path.join(HERE, "../Fashion144k_v1/feature_store"),
-                 ref_cache=None, num_eval=500, seed=42, device=None):
+                 ref_cache=None, num_eval=500, seed=42, device=None, model=None, reference=None):
+        """model: an already-loaded CLIPOutfitGNN to reuse (demo.py shares Module 4's). reference: raw
+        logits of real test outfits to rank against (demo.py passes Module 4's full-test-set
+        HarmonyReference, so M2 and M4 report the same harmony %); None keeps the 500-outfit cache."""
+        if model is not None:
+            device = next(model.parameters()).device
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.seed = seed
         tg.set_seed(seed)
@@ -111,11 +116,17 @@ class PhotoScorer:
         self.pool = self.ds.build_pool(self.ds.valid_indices)
         self.attr_mask = od.attr_subset_indices()
 
-        self.model = tg.CLIPOutfitGNN(attr_dim=len(self.attr_mask), edge_dim=od.EDGE_ATTR_DIM).to(self.device)
-        self.model.load_state_dict(torch.load(checkpoint, map_location=self.device, weights_only=True))
+        if model is not None:
+            self.model = model
+        else:
+            self.model = tg.CLIPOutfitGNN(attr_dim=len(self.attr_mask), edge_dim=od.EDGE_ATTR_DIM).to(self.device)
+            self.model.load_state_dict(torch.load(checkpoint, map_location=self.device, weights_only=True))
         self.model.eval()
 
-        if ref_cache and os.path.exists(ref_cache):
+        if reference is not None:
+            self.ref = np.sort(np.asarray(reference, dtype=np.float64))
+            print(f"[scorer] using the shared harmony reference ({len(self.ref)} test outfits)")
+        elif ref_cache and os.path.exists(ref_cache):
             self.ref = np.sort(np.asarray(json.load(open(ref_cache)), dtype=np.float64))
             print(f"[scorer] loaded reference distribution ({len(self.ref)}) from {os.path.basename(ref_cache)}")
         else:
@@ -129,11 +140,15 @@ class PhotoScorer:
     def pct(self, raw):  # Harmoniousness percentile (0-100) vs real test outfits
         return 100.0 * np.searchsorted(self.ref, raw, side="right") / len(self.ref)
 
-    def score_photo(self, score_dir, photo=None, out=os.path.join(HERE, "harmoniousness_demo.png")):
+    def score_photo(self, score_dir, photo=None, out=os.path.join(HERE, "harmoniousness_demo.png"),
+                    area_scale=1.0):
         """Score one segmented outfit folder end-to-end and render the figure.
-        Returns (score, corr) as 0-100 percentiles (corr is None if no swap was possible)."""
+        Returns (score, corr) as 0-100 percentiles (corr is None if no swap was possible).
+        area_scale rescales the photo's garment areas (Module 4 passes 98,304 / photo pixels)."""
         garments = json.load(open(os.path.join(score_dir, "metadata.json")))
         nodes = [od.build_node_from_meta(score_dir, g) for g in garments]
+        for n in nodes:
+            n["area"] *= area_scale
         raw = raw_score(self.model, self.ds, nodes, self.attr_mask, self.device)
         score = self.pct(raw)
         tg.set_seed(self.seed)  # deterministic corruption so live numbers are reproducible
