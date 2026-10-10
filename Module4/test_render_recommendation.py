@@ -60,8 +60,22 @@ def test_crop_readable_missing(tmp_path):
 
 def test_crop_readable_small_region(tmp_path):
     a = np.zeros((120, 120), np.uint8)
-    a[10:30, 10:30] = 255
+    a[10:50, 10:50] = 255  # solid 40x40 = 1600 px < MIN_AREA
     assert not crop_readable(_png(tmp_path / "s.png", a))
+
+
+def test_crop_readable_split_legs(tmp_path):
+    a = np.zeros((150, 200), np.uint8)
+    a[10:130, 20:70] = 255
+    a[10:130, 120:170] = 255  # two separate 50x120 blocks: main piece is only half the pixels
+    assert not crop_readable(_png(tmp_path / "l.png", a))
+
+
+def test_crop_readable_ignores_small_speck(tmp_path):
+    a = np.zeros((200, 200), np.uint8)
+    a[10:130, 10:90] = 255
+    a[190:196, 190:196] = 255  # 36 px far away, well under 15% of the pixels
+    assert crop_readable(_png(tmp_path / "p.png", a))
 
 
 def test_crop_readable_specks(tmp_path):

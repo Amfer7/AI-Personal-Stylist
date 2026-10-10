@@ -22,6 +22,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from scipy import ndimage  # noqa: E402
 from PIL import Image  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,23 +39,31 @@ TEXT, TEXT2, GRID = "#0b0b0b", "#52514e", "#e6e5e0"
 VERDICTS = ("swap", "refresh", "keep")
 HEADLINE = {"swap": "Swap: {piece} → {to}", "refresh": "Refresh: already strong, a trendier option",
             "keep": "Keep: already strong"}
-# fragmentary SegFormer crops read as specks on a slide
-MIN_SIDE, MIN_FILL = 48, 0.35
+# slide legibility: fragmentary SegFormer crops (tiny, split, specked) read as noise on a slide
+MIN_AREA, MIN_MAIN, MIN_FILL = 4000, 0.85, 0.35
+EVAL_SET_SIZE = 2000
 
 
-def crop_readable(path, min_side: int = MIN_SIDE, min_fill: float = MIN_FILL) -> bool:
-    """True if the RGBA cut-out exists and its opaque region is big and solid enough to read."""
+def crop_readable(path, min_area: int = MIN_AREA, min_main: float = MIN_MAIN,
+                  min_fill: float = MIN_FILL) -> bool:
+    """True if the RGBA cut-out exists and is big, one main piece, and solid enough to read."""
     if not path or not os.path.exists(path):
         return False
     try:
         alpha = np.asarray(Image.open(path).convert("RGBA"))[..., 3] > 0
     except Exception:
         return False
-    ys, xs = np.nonzero(alpha)
-    if len(ys) == 0:
+    total = int(alpha.sum())
+    if total < min_area:
         return False
-    h, w = ys.max() - ys.min() + 1, xs.max() - xs.min() + 1
-    return bool(h >= min_side and w >= min_side and len(ys) / (h * w) >= min_fill)
+    labels, n = ndimage.label(alpha, structure=np.ones((3, 3)))
+    sizes = np.bincount(labels.ravel())[1:]
+    main = int(sizes.argmax()) + 1
+    if sizes.max() / total < min_main:
+        return False
+    ys, xs = np.nonzero(labels == main)
+    box = (ys.max() - ys.min() + 1) * (xs.max() - xs.min() + 1)
+    return bool(len(ys) / box >= min_fill)
 
 
 def drawn_crops(r, state, pool, settings, verdict: str) -> list:
@@ -62,7 +71,8 @@ def drawn_crops(r, state, pool, settings, verdict: str) -> list:
     if verdict == "keep":
         return [piece_crop(state, p, pool, settings) for p in state.pieces]
     s = r.suggestions[0]
-    return [piece_crop(state, p, pool, settings) for p in state.pieces if p.file != s.piece_file]         + [settings.abs(s.crop_path)]
+    return ([piece_crop(state, p, pool, settings) for p in state.pieces if p.file != s.piece_file]
+            + [settings.abs(s.crop_path)])
 
 
 def load_sweeps(eval_dir: str) -> dict:
@@ -120,13 +130,13 @@ def render_tradeoff(sweeps: dict, chosen_w: float, out_path: str) -> str:
     return out_path
 
 
-def pick_examples(rec, sources, limit: int = 2000) -> dict:
+def pick_examples(rec, sources, limit: int = EVAL_SET_SIZE) -> dict:
     """First report-set outfit per verdict whose drawn tiles are all readable, scanning `sources` in order."""
     from eval_recovery import eval_sets
     from outfit_state import state_from_pool
     found = {}
     for src in sources:
-        _, report = eval_sets(rec.pool, 2000, source=src)
+        _, report = eval_sets(rec.pool, EVAL_SET_SIZE, source=src)
         for key in report[:limit]:
             state = state_from_pool(rec.pool, src, key)
             table = rec.score(state, mode="demo", exclude=(src, key))
