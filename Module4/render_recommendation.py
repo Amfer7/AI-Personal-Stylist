@@ -28,7 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-from demo_panel import outfit_tiles, swap_board  # noqa: E402
+from demo_panel import outfit_tiles, piece_crop, swap_board  # noqa: E402
 from m4_settings import REPO, M4Settings  # noqa: E402
 from outfit_board import outfit_board  # noqa: E402
 
@@ -38,6 +38,31 @@ TEXT, TEXT2, GRID = "#0b0b0b", "#52514e", "#e6e5e0"
 VERDICTS = ("swap", "refresh", "keep")
 HEADLINE = {"swap": "Swap: {piece} → {to}", "refresh": "Refresh: already strong, a trendier option",
             "keep": "Keep: already strong"}
+# fragmentary SegFormer crops read as specks on a slide
+MIN_SIDE, MIN_FILL = 48, 0.35
+
+
+def crop_readable(path, min_side: int = MIN_SIDE, min_fill: float = MIN_FILL) -> bool:
+    """True if the RGBA cut-out exists and its opaque region is big and solid enough to read."""
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        alpha = np.asarray(Image.open(path).convert("RGBA"))[..., 3] > 0
+    except Exception:
+        return False
+    ys, xs = np.nonzero(alpha)
+    if len(ys) == 0:
+        return False
+    h, w = ys.max() - ys.min() + 1, xs.max() - xs.min() + 1
+    return bool(h >= min_side and w >= min_side and len(ys) / (h * w) >= min_fill)
+
+
+def drawn_crops(r, state, pool, settings, verdict: str) -> list:
+    """Crop paths render_examples draws for this outfit (a swap's replaced piece is not drawn)."""
+    if verdict == "keep":
+        return [piece_crop(state, p, pool, settings) for p in state.pieces]
+    s = r.suggestions[0]
+    return [piece_crop(state, p, pool, settings) for p in state.pieces if p.file != s.piece_file]         + [settings.abs(s.crop_path)]
 
 
 def load_sweeps(eval_dir: str) -> dict:
@@ -95,8 +120,8 @@ def render_tradeoff(sweeps: dict, chosen_w: float, out_path: str) -> str:
     return out_path
 
 
-def pick_examples(rec, sources, limit: int = 400) -> dict:
-    """First report-set outfit per verdict, scanning `sources` in order."""
+def pick_examples(rec, sources, limit: int = 2000) -> dict:
+    """First report-set outfit per verdict whose drawn tiles are all readable, scanning `sources` in order."""
     from eval_recovery import eval_sets
     from outfit_state import state_from_pool
     found = {}
@@ -106,7 +131,11 @@ def pick_examples(rec, sources, limit: int = 400) -> dict:
             state = state_from_pool(rec.pool, src, key)
             table = rec.score(state, mode="demo", exclude=(src, key))
             r = rec.decide(table)
-            if r.verdict not in found and (r.verdict == "keep" or r.suggestions):
+            if r.verdict in found or not (r.verdict == "keep" or r.suggestions):
+                continue
+            if len(state.pieces) < 2:
+                continue
+            if all(crop_readable(c) for c in drawn_crops(r, state, rec.pool, rec.settings, r.verdict)):
                 found[r.verdict] = (src, key, table, r)
             if len(found) == len(VERDICTS):
                 return found
@@ -115,6 +144,8 @@ def pick_examples(rec, sources, limit: int = 400) -> dict:
 
 def render_examples(rec, found: dict, out_path: str) -> str:
     verdicts = [v for v in VERDICTS if v in found]
+    if not verdicts:
+        raise ValueError("no examples found")
     heads = []
     fig, axes = plt.subplots(len(verdicts), 1, figsize=(10, 3.2 * len(verdicts)), squeeze=False)
     with tempfile.TemporaryDirectory() as tmp:
