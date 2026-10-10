@@ -373,14 +373,170 @@ def process_dataset(
     return manifest_df, embeddings_arr
 
 
+# ---------------------------------------------------------------------------
+# Store mode (Module 4, Phase 0): everything Module 2 needs, in Fashion144k's layout
+# ---------------------------------------------------------------------------
+#
+# Lean and full modes keep only an embedding + labels per garment. Store mode runs the identical
+# Module 1 path that built the Fashion144k store (Module2/01_segment_batch.segment_photos: SegFormer
+# parsing, crops, attributes, CLIP embeddings), so Module 2 can score Pinterest outfits and Module 4
+# can offer Pinterest garments. Layout under --output_dir (the "store"):
+#
+#   photos.csv               key,image_path,pin_id,md5,width,height  (one row per unique image;
+#                            key = integer outfit id, like a Fashion144k photos.txt line number)
+#   split.json               {key: "train"|"val"|"test"}, seeded, identical files kept together
+#   outputs/<key>/           crops, .npy embeddings, metadata.json (crop_path made relative)
+#   segment_checkpoint.txt   resumable, like Fashion144k's
+#   garment_manifest.csv     + garment_embeddings.npy: one row per (metadata row, garment), the input
+#                            Module 3's trend model is fitted on (same columns as lean mode, plus key)
+#
+# Then build the Module 2 feature store with areas in the 98,304-px Fashion144k frame:
+#   python Module2/build_feature_store.py --output_root <store>/outputs --store_dir <store>/feature_store \
+#       --photo_sizes <store>/photos.csv --area_frame_px 98304
+
+SPLIT_FRACTIONS = (("train", 0.6), ("val", 0.1), ("test", 0.3))   # Fashion144k's proportions
+
+
+def _load_segment_batch():
+    from importlib.util import module_from_spec, spec_from_file_location
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Module2", "01_segment_batch.py")
+    spec = spec_from_file_location("segment_batch", path)
+    mod = module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def build_photo_table(metadata_csv: str, image_col: str = "image_path", date_col: str = "date_ym") -> pd.DataFrame:
+    """One row per unique image file, sorted by path, with its integer key, size and content MD5.
+    The metadata.csv `hash` column can't group identical images (it differs between rows that share
+    one file), so the files themselves are hashed."""
+    import hashlib
+    base = os.path.dirname(os.path.abspath(metadata_csv))
+    df = pd.read_csv(metadata_csv).dropna(subset=[image_col, date_col])
+    df[image_col] = df[image_col].astype(str).str.replace("\\", "/", regex=False)
+    first = df.drop_duplicates(image_col).sort_values(image_col).reset_index(drop=True)
+    rows = []
+    for key, r in first.iterrows():
+        path = os.path.join(base, r[image_col])
+        if not os.path.exists(path):
+            continue
+        with open(path, "rb") as f:
+            md5 = hashlib.md5(f.read()).hexdigest()
+        with Image.open(path) as im:
+            w, h = im.size
+        rows.append({"image_path": r[image_col], "pin_id": r["pin_id"], "md5": md5, "width": w, "height": h})
+    table = pd.DataFrame(rows)
+    table.insert(0, "key", np.arange(len(table)))
+    return table
+
+
+def make_split(photos: pd.DataFrame, seed: int = 0) -> dict:
+    """Seeded photo-level split in Fashion144k's 60/10/30 proportions. Images with identical file
+    content share a split, so the same picture can't sit in train and test."""
+    groups = photos.groupby("md5")["key"].apply(list).tolist()
+    groups.sort(key=lambda g: g[0])
+    order = np.random.default_rng(seed).permutation(len(groups))
+    split, n, done = {}, len(photos), 0
+    bounds = np.cumsum([f for _, f in SPLIT_FRACTIONS]) * n
+    for gi in order:
+        name = next(nm for (nm, _), b in zip(SPLIT_FRACTIONS, bounds) if done < b)
+        for k in groups[gi]:
+            split[str(int(k))] = name
+        done += len(groups[gi])
+    return split
+
+
+def relativise_crop_paths(key, outfit_dir: str) -> None:
+    """Module 1 writes an absolute crop_path into metadata.json. Make it <key>/<file> so the store
+    holds no machine-specific paths (consumers use the relative `file` field anyway)."""
+    import json
+    path = os.path.join(outfit_dir, "metadata.json")
+    with open(path, encoding="utf-8") as f:
+        garments = json.load(f)
+    for g in garments:
+        g["crop_path"] = f"{key}/{g['file']}"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(garments, f, indent=2)
+
+
+def write_trend_manifest(metadata_csv: str, store_dir: str, photos: pd.DataFrame,
+                         image_col: str = "image_path", date_col: str = "date_ym") -> pd.DataFrame:
+    """garment_manifest.csv + garment_embeddings.npy from the store outputs: one row per (metadata row,
+    garment of its image), so the trend model counts every dated pin, as in lean mode."""
+    import json
+    df = pd.read_csv(metadata_csv).dropna(subset=[image_col, date_col]).reset_index(drop=True)
+    df[image_col] = df[image_col].astype(str).str.replace("\\", "/", regex=False)
+    key_of = dict(zip(photos["image_path"], photos["key"]))
+    out_root = os.path.join(store_dir, "outputs")
+    per_key = {}
+    rows, embs = [], []
+    for i, r in df.iterrows():
+        key = key_of.get(r[image_col])
+        if key is None:
+            continue
+        if key not in per_key:
+            d = os.path.join(out_root, str(key))
+            meta = os.path.join(d, "metadata.json")
+            items = []
+            if os.path.exists(meta):
+                with open(meta, encoding="utf-8") as f:
+                    for g in json.load(f):
+                        npy = os.path.splitext(os.path.join(d, g["file"]))[0] + ".npy"
+                        if os.path.exists(npy):
+                            items.append((g, np.load(npy).astype(np.float32).reshape(-1)))
+            per_key[key] = items
+        for g, e in per_key[key]:
+            rows.append({"source_idx": int(i), "key": int(key), "image_path": r[image_col],
+                         "date_ym": r[date_col], "query": r.get("query", None),
+                         "broad_category": g["broad_category"], "specific_category": g["category"],
+                         "confidence": g["confidence"], "pixel_count": g["pixel_count"]})
+            embs.append(e)
+    man = pd.DataFrame(rows, columns=["source_idx", "key"] + MANIFEST_COLUMNS[1:])
+    man.to_csv(os.path.join(store_dir, "garment_manifest.csv"), index=False)
+    arr = np.stack(embs).astype(np.float32) if embs else np.empty((0, EMB_DIM), np.float32)
+    np.save(os.path.join(store_dir, "garment_embeddings.npy"), arr)
+    return man
+
+
+def process_store(metadata_csv: str, store_dir: str, limit: Optional[int] = None,
+                  device: Optional[str] = None, seed: int = 0):
+    import json
+    os.makedirs(store_dir, exist_ok=True)
+    photos_csv = os.path.join(store_dir, "photos.csv")
+    if os.path.exists(photos_csv):
+        photos = pd.read_csv(photos_csv)
+        print(f"[store] {len(photos)} photos (existing photos.csv)")
+    else:
+        print("[store] listing unique images (sizes + content hashes) ...")
+        photos = build_photo_table(metadata_csv)
+        photos.to_csv(photos_csv, index=False)
+        print(f"[store] {len(photos)} unique images -> {photos_csv}")
+    split_path = os.path.join(store_dir, "split.json")
+    if not os.path.exists(split_path):
+        with open(split_path, "w", encoding="utf-8") as f:
+            json.dump(make_split(photos, seed), f)
+
+    sb = _load_segment_batch()
+    sb.segment_photos(photos["image_path"].tolist(), os.path.dirname(os.path.abspath(metadata_csv)),
+                      os.path.join(store_dir, "outputs"), os.path.join(store_dir, "segment_checkpoint.txt"),
+                      limit=limit, device=device, after_each=relativise_crop_paths,
+                      save_vis=False)  # overlays are ~0.7 MB/photo at full res; photo sizes are in photos.csv
+    man = write_trend_manifest(metadata_csv, store_dir, photos)
+    print(f"[store] trend manifest: {len(man)} garment rows from {man['key'].nunique()} images")
+    print("[store] next: python Module2/build_feature_store.py --output_root <store>/outputs "
+          "--store_dir <store>/feature_store --photo_sizes <store>/photos.csv --area_frame_px 98304")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--metadata_csv", required=True)
     parser.add_argument("--output_dir", required=True)
-    parser.add_argument("--mode", choices=["lean", "full"], default="lean",
+    parser.add_argument("--mode", choices=["lean", "full", "store"], default="lean",
                         help="lean (default, optimization A) skips unused CLIP "
                              "classify+attributes and batches embedding; full is "
-                             "the original per-crop path.")
+                             "the original per-crop path; store writes everything Module 2 "
+                             "and Module 4 need (see 'Store mode' above).")
+    parser.add_argument("--seed", type=int, default=0, help="store mode: split seed")
     parser.add_argument("--limit", type=int, default=None,
                         help="Process only the first N images. STRONGLY "
                              "recommended for a pilot before the full dataset.")
@@ -388,6 +544,9 @@ def main():
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
 
+    if args.mode == "store":
+        process_store(args.metadata_csv, args.output_dir, limit=args.limit, device=args.device, seed=args.seed)
+        return
     process_dataset(
         metadata_csv=args.metadata_csv,
         output_dir=args.output_dir,

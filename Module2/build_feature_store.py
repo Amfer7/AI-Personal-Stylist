@@ -13,9 +13,17 @@ Layout written to <store_dir>:
     node_scalars.npy   memmap float32 (num_garments, 3) = [hue|nan, formality, area]
     index.json         { row dims, and outfits: {idx: [{row,file,category,broad_category}...]} }
 
+Area frame (optional): Module 1 stores garment areas in raw pixels of the input photo. Fashion144k
+photos are all 256x384 = 98,304 px. A store built from photos of other sizes (Pinterest) passes
+--photo_sizes (CSV with columns key,width,height) and --area_frame_px 98304, so its areas are rescaled
+to that frame: area x 98,304 / (width x height). Module 4 does the same for user photos, so garments
+from different sources compare fairly in the GNN's volume-contrast edge.
+
 Usage:
     python build_feature_store.py --output_root ../Fashion144k_v1/outputs \
         --store_dir ../Fashion144k_v1/feature_store
+    python build_feature_store.py --output_root <store>/outputs --store_dir <store>/feature_store \
+        --photo_sizes <store>/photos.csv --area_frame_px 98304
 """
 
 import os
@@ -40,11 +48,24 @@ def scan_outfits(output_root):
     )
 
 
+def load_area_scale(photo_sizes_csv, frame_px):
+    """{outfit key (int): frame_px / (width x height)} from a key,width,height CSV."""
+    import csv
+    with open(photo_sizes_csv, newline="", encoding="utf-8") as f:
+        return {int(r["key"]): frame_px / (float(r["width"]) * float(r["height"])) for r in csv.DictReader(f)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--output_root", required=True)
     ap.add_argument("--store_dir", required=True)
+    ap.add_argument("--photo_sizes", default=None,
+                    help="CSV with columns key,width,height: rescale areas to --area_frame_px")
+    ap.add_argument("--area_frame_px", type=float, default=None)
     args = ap.parse_args()
+    if (args.photo_sizes is None) != (args.area_frame_px is None):
+        ap.error("--photo_sizes and --area_frame_px go together")
+    area_scale = load_area_scale(args.photo_sizes, args.area_frame_px) if args.photo_sizes else None
 
     os.makedirs(args.store_dir, exist_ok=True)
     idxs = scan_outfits(args.output_root)
@@ -86,7 +107,7 @@ def main():
             feat[r, EMB_DIM + COLOUR_DIM:] = node["attr_feat"]
             scal[r, 0] = node["hue"] if node["hue"] is not None else np.nan
             scal[r, 1] = node["formality"]
-            scal[r, 2] = node["area"]
+            scal[r, 2] = node["area"] * (area_scale[idx] if area_scale is not None else 1.0)
             done += 1
         if done and done % 2000 == 0:
             print(f"[store] filled {done}/{total} rows")
@@ -98,6 +119,8 @@ def main():
         "row_dim": ROW_DIM, "emb_dim": EMB_DIM, "colour_dim": COLOUR_DIM, "attr_dim": ATTR_DIM,
         "num_rows": total, "outfits": outfits_index,
     }
+    if area_scale is not None:
+        index["area_frame_px"] = args.area_frame_px
     with open(os.path.join(args.store_dir, "index.json"), "w") as f:
         json.dump(index, f)
     print(f"[store] done. wrote features.npy, node_scalars.npy, index.json to {args.store_dir}")

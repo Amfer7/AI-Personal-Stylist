@@ -5,6 +5,7 @@ Fashion144k_v1/
 PinterestData/pinterest_dataset/
 PinterestData/garment_data*/
 PinterestData/pinterest_data/
+PinterestData/store*/
 Module4/cache/
 *.npy
 *.npz

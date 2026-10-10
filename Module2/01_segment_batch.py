@@ -93,74 +93,93 @@ def main():
         module1_path = os.path.join(args.repo_dir, "real_image_pipeline")
     else:
         module1_path = args.module1_dir
-    if not os.path.isdir(module1_path):
-        raise FileNotFoundError(f"Module1 code not found at: {module1_path}")
-    sys.path.insert(0, module1_path)
-    print(f"[INFO] Importing Module 1 pipeline from: {module1_path}")
+    photos = load_photos_list(args.photos_list)
+    print(f"[INFO] Loaded {len(photos)} filenames from photos list")
+    segment_photos(photos, args.images_dir, args.output_root, args.checkpoint, fail_log=args.fail_log,
+                   start=args.start, limit=args.limit,
+                   max_consecutive_failures=args.max_consecutive_failures, device=args.device,
+                   module1_dir=module1_path)
+
+
+def segment_photos(photos, images_dir, output_root, checkpoint, fail_log=None, start=0, limit=None,
+                   max_consecutive_failures=25, device=None, module1_dir=DEFAULT_MODULE1_DIR,
+                   after_each=None, save_vis=True):
+    """Run Module 1 (SegFormer parsing + attributes + CLIP embeddings) on photos[i] for every index i
+    not yet in the checkpoint, writing <output_root>/<i>/. Shared by Fashion144k (this script) and the
+    Pinterest store mode (Module3/pinterest_garment_segmentation.py --mode store), so both stores come
+    from the identical code path. after_each(idx, output_dir) runs after a photo with garments is done.
+    save_vis=False skips the <i>_vis.jpg overlays (display only; no feature depends on them)."""
+    if fail_log is None:
+        fail_log = checkpoint + ".failed.txt"
+    if not os.path.isdir(module1_dir):
+        raise FileNotFoundError(f"Module1 code not found at: {module1_dir}")
+    if module1_dir not in sys.path:
+        sys.path.insert(0, module1_dir)
+    print(f"[INFO] Importing Module 1 pipeline from: {module1_dir}")
     from fashion_segmenter import process_image_segformer
     from clip_extract_embeddings import extract_folder_embeddings
 
-    photos = load_photos_list(args.photos_list)
-    print(f"[INFO] Loaded {len(photos)} filenames from photos list")
-
-    done = load_checkpoint(args.checkpoint)
+    done = load_checkpoint(checkpoint)
     print(f"[INFO] {len(done)} outfits already completed per checkpoint")
 
-    os.makedirs(args.output_root, exist_ok=True)
+    os.makedirs(output_root, exist_ok=True)
 
     processed_this_run = 0
     consecutive_failures = 0
     t_start = time.time()
 
-    for idx in range(args.start, len(photos)):
-        if args.limit is not None and processed_this_run >= args.limit:
-            print(f"[STOP] Reached --limit of {args.limit} new images this run")
+    for idx in range(start, len(photos)):
+        if limit is not None and processed_this_run >= limit:
+            print(f"[STOP] Reached --limit of {limit} new images this run")
             break
 
         if idx in done:
             continue
 
         filename = photos[idx]
-        image_path = os.path.join(args.images_dir, filename)
+        image_path = os.path.join(images_dir, filename)
 
         if not os.path.exists(image_path):
-            with open(args.fail_log, "a", encoding="utf-8") as f:
+            with open(fail_log, "a", encoding="utf-8") as f:
                 f.write(f"{idx}\tMISSING_FILE\t{filename}\n")
-            append_checkpoint(args.checkpoint, idx)  # don't retry forever
+            append_checkpoint(checkpoint, idx)  # don't retry forever
             continue
 
         try:
             result = process_image_segformer(
                 image_path=image_path,
-                output_root=args.output_root,
+                output_root=output_root,
                 image_id=str(idx),
-                device=args.device,
+                save_vis=save_vis,
+                device=device,
             )
             if result["num_garments"] == 0:
-                with open(args.fail_log, "a", encoding="utf-8") as f:
+                with open(fail_log, "a", encoding="utf-8") as f:
                     f.write(f"{idx}\tNO_GARMENTS\t{filename}\n")
             else:
                 extract_folder_embeddings(
                     image_folder=result["output_dir"],
                     force_recompute=False,
-                    device=args.device,
+                    device=device,
                 )
+                if after_each is not None:
+                    after_each(idx, result["output_dir"])
         except Exception as e:
-            with open(args.fail_log, "a", encoding="utf-8") as f:
+            with open(fail_log, "a", encoding="utf-8") as f:
                 f.write(f"{idx}\tEXCEPTION\t{filename}\t{repr(e)}\n")
                 f.write(traceback.format_exc() + "\n")
-            append_checkpoint(args.checkpoint, idx)  # mark seen so we don't loop forever
+            append_checkpoint(checkpoint, idx)  # mark seen so we don't loop forever
             consecutive_failures += 1
             # Circuit breaker: a systemic bug (e.g. a bad dependency/dtype error) would
             # otherwise fail every image and silently mark the whole dataset "done".
-            if consecutive_failures >= args.max_consecutive_failures:
+            if consecutive_failures >= max_consecutive_failures:
                 print(f"[ABORT] {consecutive_failures} consecutive failures -- likely a "
                       f"systemic error, not bad images. Stopping so the checkpoint isn't "
-                      f"poisoned. See {args.fail_log}.")
+                      f"poisoned. See {fail_log}.")
                 break
             continue
 
-        append_checkpoint(args.checkpoint, idx)
+        append_checkpoint(checkpoint, idx)
         processed_this_run += 1
         consecutive_failures = 0
 
@@ -171,7 +190,8 @@ def main():
                   f"({rate:.2f} img/s, {elapsed/60:.1f} min elapsed)")
 
     print(f"[DONE] Processed {processed_this_run} new outfits this run. "
-          f"Total completed overall: {len(load_checkpoint(args.checkpoint))}")
+          f"Total completed overall: {len(load_checkpoint(checkpoint))}")
+    return processed_this_run
 
 
 if __name__ == "__main__":

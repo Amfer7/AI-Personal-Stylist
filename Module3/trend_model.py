@@ -55,7 +55,7 @@ RECENCY_HALF_LIFE_MONTHS = 4     # how fast older months decay in weight
 MIN_CLUSTER_IMAGES = 15          # clusters with fewer images get capped/flagged
 MATCH_CONFIDENCE_THRESHOLD = 0.20  # min cosine similarity to trust a match
 GROWTH_WEIGHT = 0.6              # combining weights for final score
-RECENCY_WEIGHT = 0.4
+RECENCY_WEIGHT = 1.0 - GROWTH_WEIGHT  # recency gets the rest
 
 
 # --------------------------------------------------------------------------
@@ -376,10 +376,13 @@ def _month_diff(a: Tuple[int, int], b: Tuple[int, int]) -> int:
     return (a[0] - b[0]) * 12 + (a[1] - b[1])
 
 
-def _assign_trendiness_scores(clusters: Dict[int, ClusterInfo]) -> None:
+def _assign_trendiness_scores(clusters: Dict[int, ClusterInfo],
+                              growth_weight: float = GROWTH_WEIGHT) -> None:
     """Normalize growth + recency across all clusters (percentile rank, so
     the score is relative to what's actually in this batch of Pinterest data)
-    and combine into a single 0-100 Trendiness Score."""
+    and combine into a single 0-100 Trendiness Score. growth_weight is the
+    growth share (recency gets the rest); forward_share_backtest.py compares
+    values of it (decision D11)."""
     ids = list(clusters.keys())
     growth_vals = np.array([clusters[i].growth_raw for i in ids])
     recency_vals = np.array([clusters[i].recency_raw for i in ids])
@@ -388,7 +391,7 @@ def _assign_trendiness_scores(clusters: Dict[int, ClusterInfo]) -> None:
     recency_pct = _percentile_rank(recency_vals)
 
     for idx, cid in enumerate(ids):
-        combined = GROWTH_WEIGHT * growth_pct[idx] + RECENCY_WEIGHT * recency_pct[idx]
+        combined = growth_weight * growth_pct[idx] + (1.0 - growth_weight) * recency_pct[idx]
         score = float(combined * 100)
         if clusters[cid].low_confidence:
             # don't let a sparse cluster claim a top score off noise
