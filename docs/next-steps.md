@@ -161,7 +161,7 @@ From [`Module2/README.md`](../Module2/README.md) ("Raising AUC above ~0.80"), ch
       one harmony reference (tested equal), `--vram-gb`. Slide figures:
       `demos/recommendation_tradeoff.png`, `demos/recommendation_demo.png`. Slide examples filtered
       for readable crops (owner decision). Manual browser check still to do.
-      Implementation plan: [`module4-demo-plan.md`](module4-demo-plan.md).
+      Build plans for the core and the demo were deleted 2026-10-13 once done; facts that existed only there are in `Module4/README.md`.
 - [ ] Click through the UIs in a browser before presenting.
 
 ---

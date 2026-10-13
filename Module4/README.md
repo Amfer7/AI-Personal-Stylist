@@ -198,6 +198,55 @@ your own item out of your suggestions (D8b).
   Pinterest crop of sneakers labelled "top", a sweatshirt labelled "jacket", denim shorts labelled
   "pants"), and some Pinterest crops contain the pin's overlaid text. These can appear in live
   suggestions. Recorded as open in [`docs/next-steps.md`](../docs/next-steps.md).
+- **Two trend-weight conventions.** The demo slider mixes gain = (1 − w)·ΔH + w·ΔT, the same mix as the
+  evaluation and the trade-off figure. `run_recommend.py --w-t` keeps `w_h` from the settings (0.8) and
+  changes only `w_t`. At the calibrated w = 0.2 the two agree.
+- **Demo model sharing.** In **All**, Module 4 loads first, and Modules 2 and 3 reuse its GNN and trend
+  model, so everything reports one harmony reference (the full test set). The old 500-outfit reference
+  `demos/_ref_scores.json` is no longer read.
+- **Slide chart colours** (passed the dataviz palette validator on light): Fashion144k `#2a78d6`,
+  Pinterest `#eb6834`, text `#0b0b0b` / `#52514e`, grid `#e6e5e0`, white background.
+
+## Facts the design relies on
+
+Checked against the data on 2026-10-07. If one stops being true, the design needs another look.
+
+- Module 1 emits exactly the 16 specific types in `swap_groups.py`, and only 4 broad categories occur
+  (`top`, `bottom`, `dress`, `accessory`), so every swap group stays inside one broad category.
+- No outfit holds two pieces of one type (left and right shoes are merged), so a swap is always one piece
+  for one piece. A type that is already worn has a co-occurrence count of 0, so it is blocked.
+- Train co-occurrence: pants+leggings, pants+shorts, leggings+shorts and any two upper types all **0**;
+  skirt+leggings 2,878; shorts+skirt 8. The minimum count of 20 blocks exactly the impossible pairs.
+- M3 cluster ids are unique only within a broad category, so the diversity key is (broad, cluster).
+- Feasibility check before the build: the dense scorer matched `model(build_graph)` to 1.5e-5 on 1,000
+  random swaps. A 5-piece outfit against its whole broad-category pool (823,170 what-if outfits) scored
+  in 0.42 s using 0.84 GB.
+
+## GPU memory budget (6 GB cap)
+
+| Item | Both catalogues (634,742 rows) |
+|---|---|
+| CUDA context (not counted by the allocator) | ~0.3–0.5 GB |
+| Pool projection, 128 × fp32 | 0.32 GB |
+| Pool CLIP embeddings, 512 × fp32 (own-item exclusion) | 1.28 GB |
+| Scoring chunk (sized from the cap) | ≤ ~0.6 GB |
+| **Request-time peak (allocator)** | **~2.3 GB** |
+
+If memory gets tight, the embeddings can drop to fp16, which halves them. The cosine-threshold tests
+would then need a ±1e-3 tolerance.
+
+## Adding another catalogue
+
+No Module 4 code changes are needed. Pinterest was added this way:
+
+1. Build a feature store in the Fashion144k layout (570-wide rows, `index.json` with `category`,
+   `broad_category` and the relative `file`), with crops under `<output_root>/<outfit_key>/`. Store areas
+   in the 98,304-px frame, or every new garment looks oversized next to the others.
+2. Write a split file: `{outfit_key: "train" | "val" | "test"}`.
+3. Add an entry to `stores` in `m4_settings.json`.
+4. Run `python Module4/build_cache.py`. The fingerprint changes, so everything is rebuilt: projection,
+   trend, cross-catalogue reposts, co-occurrence and the harmony reference.
+5. Recalibrate with `eval_recovery.py --set dev --freeze`.
 
 ## Next
 

@@ -1,9 +1,10 @@
 # Module 4: Swap Recommendation (design)
 
-**Status:** built and evaluated on Fashion144k (2026-10-09); demo integration next · all decisions made 2026-10-07.
-**Result:** on 2,000 held-out outfits with one piece deliberately spoiled, M4 finds the spoiled piece
-**72%** of the time (chance 31%, best simple baseline 39%), and ranks the garment the person actually
-wore in the top 5% of thousands of candidates. Details in [`Module4/README.md`](../Module4/README.md).
+**Status:** built, evaluated on both catalogues (Fashion144k + Pinterest) and in the demo (2026-10-10) · all decisions made 2026-10-07.
+**Result:** on 2,000 held-out outfits per catalogue with one piece deliberately spoiled, M4 finds the
+spoiled piece **72%** of the time on Fashion144k and **69%** on Pinterest (chance 31% / 36%, best simple
+baseline 42% / 43%), and ranks the garment the person actually wore in the top ~5% of thousands of
+candidates. Details in [`Module4/README.md`](../Module4/README.md).
 **Full engineering spec** (every decision with alternatives, evidence and file references):
 [`module4-design-detailed.md`](module4-design-detailed.md).
 
@@ -58,8 +59,10 @@ trend on.
 For every piece, M4 tries every allowed replacement and measures the improvement. It then summarises
 each piece with one number and swaps the piece that improves most.
 - Taking only the *single best* replacement is misleading. Out of thousands of tries, one will look
-  great by luck (the **winner's curse**). So the default is the **average of the top 5**.
-- Three summary rules are compared in evaluation and the winner ships.
+  great by luck (the **winner's curse**).
+- Three summary rules were compared in evaluation: the single best, the average of the top 5, and the
+  **share of replacements that beat what you're wearing**. The last one won and ships. All three ended up
+  within about 2 points of each other.
 
 ### 3. How harmony and trend combine
 `gain = w_H × (harmony change) + w_T × (trend change)`, with both changes put on the same scale
@@ -149,7 +152,8 @@ Because M4 *acts* on the trend score, the formula is re-tested before M4 is tune
 5. Refit M3 on the new data and settle the trend formula.
 6. Build the combined catalogue.
 
-**Then M4:** candidate pool → swap groups → recommender → evaluation (**both done, Fashion144k only**) → demo.
+**Then M4:** candidate pool → swap groups → recommender → evaluation → demo. **All done** (Phase 0 and
+the Pinterest re-evaluation 2026-10-10). Still open: the human study.
 
 ## Not in scope (for now)
 - **Multi-piece swaps.** Deferred, but the code is designed so they can be added later.
