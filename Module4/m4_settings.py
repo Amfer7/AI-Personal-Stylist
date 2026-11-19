@@ -38,6 +38,7 @@ class M4Settings:
     t_dup: float
     dup_max_colour_l1: float   # near-duplicate also needs matching colour histograms (L1 of 3 x hist, max 6)
     dup_max_area_ratio: float  # ... and crop areas within this ratio
+    crop_gate: dict            # demo-pool crop quality gate (crop_quality.py); not used by the evaluation
     cooc_min: int
     same_type: bool
     trend_floor: bool

@@ -29,6 +29,35 @@
   "t_dup": 0.99,
   "dup_max_colour_l1": 0.25,
   "dup_max_area_ratio": 1.25,
+  "crop_gate": {
+    "min_main": 0.85,
+    "min_fill": 0.35,
+    "min_cover": 0.2,
+    "max_holes": 0.1,
+    "max_text_p": 0.5,
+    "min_area": {
+      "default": 4000,
+      "shoe": 1100,
+      "bag": 1800,
+      "hat": 1000,
+      "belt": 650,
+      "scarf": 2000,
+      "sunglasses": 600
+    },
+    "min_label_p": {
+      "default": 0.02,
+      "shoe": 0.0,
+      "bag": 0.0,
+      "hat": 0.0,
+      "belt": 0.0,
+      "scarf": 0.0,
+      "sunglasses": 0.0
+    },
+    "pair_types": [
+      "shoe",
+      "sunglasses"
+    ]
+  },
   "cooc_min": 20,
   "same_type": false,
   "trend_floor": false,

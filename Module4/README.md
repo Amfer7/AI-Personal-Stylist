@@ -86,6 +86,8 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
 | `dense_gnn.py` | Batched GNN scorer with GPU-memory-aware chunking (halves the chunk on out-of-memory) |
 | `candidate_pool.py` | Builds and loads the candidate pool: projection, trend, repost groups, the near-duplicate rule, crop paths |
 | `calibrate_dup.py` | Contact sheets of garment pairs that pass the near-duplicate rule, by CLIP cosine band |
+| `crop_quality.py` | The demo pool's crop quality gate: shape metrics and CLIP scores per crop, the per-type rule |
+| `calibrate_crops.py` | Contact sheets of crops the gate rejects (one row per reason) and keeps, per type |
 | `harmony_reference.py` | Harmony percentiles and the score spreads (σ) used to standardise gains |
 | `outfit_state.py` | An outfit as a list of pieces; loads Module 1 output (with area normalisation) |
 | `swap_scorer.py` | Outfit score + every swap's score for one piece |
@@ -96,7 +98,7 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
 | `build_cache.py`, `run_recommend.py` | Command-line entry points |
 | `eval_recovery.py` | The evaluation: outfit sets, corruption, baselines, calibration, reports |
 | `eval_metrics.py` | Pure helpers for it: per-outfit summaries, threshold, Pareto weight, bootstrap CIs, McNemar |
-| `conftest.py`, `test_*.py` | Tests: 73 in total, one file per unit. Tests that need the real data are marked `real` |
+| `conftest.py`, `test_*.py` | Tests: 101 in total, one file per unit. Tests that need the real data are marked `real` |
 
 ## Measured performance
 
@@ -163,6 +165,7 @@ Full tables are written to `Module4/cache/eval/report_report.md` and `pinterest_
 | Swap threshold τ | 0.392 for `slot_percentile` (0.333 before Pinterest joined; also stored for the other rules) | Best balanced accuracy, real vs corrupted dev outfits (D7) |
 | Refresh tolerance ε | 0.2σ | M4's detection limit: on dev its hit rate is no better than chance for harmony drops below ~0.2σ, so a smaller loss "keeps the look" |
 | Near-duplicate rule | CLIP cosine ≥ 0.99, colour-histogram L1 ≤ 0.25, size ratio ≤ 1.25 | See "Reposts and near-duplicates" below |
+| Crop quality gate (`crop_gate`) | Per type; demo pool only | Set from contact sheets 2026-11-19, see "Crop quality gate" below. Not part of the evaluation |
 
 Recalibrated 2026-10-10 on the both-catalogue pool; rule, w_t and ε came out unchanged.
 
@@ -181,6 +184,39 @@ Spot checks of the original photos showed the same photo posted under different 
 demo pool now merges 238 garments (it used to merge 7,859). The same per-garment rule still keeps
 your own item out of your suggestions (D8b).
 
+## Crop quality gate
+
+Suggestions are shown as pictures, so the **demo pool** only holds catalogue crops that read well. An
+audit (2026-11-19) found that 35% of the suggestions the demo showed for 200 random test outfits were
+fragments, collages or mislabelled pieces: 31% for Fashion144k inputs, 48% for Pinterest inputs.
+Fashion144k crops are often tiny (median 98×71 px). In Pinterest collages, flat-lays and product shots
+next to a model, several garments merge into one mask, and pins carry caption text.
+
+`build_cache.py` measures every crop once into `cache/crop_metrics.npz`: six shape metrics from the
+alpha mask (~5 minutes for 634k crops) and two CLIP scores from the stored embedding (seconds). The gate
+in `m4_settings.json` → `crop_gate` keeps a crop if all of these hold:
+
+| Test | Bar | Catches |
+|---|---|---|
+| Opaque area | ≥ 4,000 px for clothing; shoe 1,100, bag 1,800, hat 1,000, belt 650, scarf 2,000, sunglasses 600 | Tiny, blurry crops |
+| Largest piece's share (two largest for shoes and sunglasses) | ≥ 0.85 | Collages, garments merged across a flat-lay |
+| Largest piece / its bounding box | ≥ 0.35 | Specks and strands |
+| Opaque share of the crop canvas | ≥ 0.2 | Pieces far apart (two shoes in opposite corners) |
+| Enclosed holes / filled outline (not for shoes, sunglasses) | ≤ 0.1 | Garments hollowed out by an arm, hair or a bag |
+| CLIP: own swap group's probability (clothing only) | ≥ 0.02 | Mislabels: sneakers as "top", a sweater as "dress" |
+| CLIP: "text / caption" probability | ≤ 0.5 | Caption overlays ("21 CHIC HALDI OUTFITS") |
+
+The label check is off for accessories because CLIP reads dark boots, side-on bags and knit scarves as
+other groups. The gate is applied when the pool loads, so changing a bar needs no rebuild. It keeps
+341k of 634k demo candidates (the smallest group, Pinterest sunglasses, keeps 221). On the same 200
+outfits, every shown suggestion passes, 97% of verdicts are unchanged, and the top suggestion's harmony
+percentile goes from 87.3 to 87.0. `rep_eval` is untouched, so the evaluation results stand. Check or
+retune the bars with `python Module4/calibrate_crops.py [--types dress shoe] [--bands label text]`
+(sheets in `cache/crop_calibration/`).
+
+Known gaps: crops that pass can still be low-resolution (a 1,100-px shoe pair) or carry a small stray
+piece. The gate filters what Module 1 produced; it doesn't fix the masks.
+
 ## Things worth knowing
 
 - **"What changed" is descriptive, not causal.** The line under each suggestion (for example "formality
@@ -194,10 +230,9 @@ your own item out of your suggestions (D8b).
 - **Uses the relative `file` field, never `crop_path`.** `crop_path` in the Fashion144k metadata is an
   absolute path from an older machine.
 - **GPU memory is capped at 6 GB** (the GPU is shared) through `vram_gb` in the settings.
-- **Catalogue crop quality.** Some pool garments carry wrong Module 1 type labels (for example a
-  Pinterest crop of sneakers labelled "top", a sweatshirt labelled "jacket", denim shorts labelled
-  "pants"), and some Pinterest crops contain the pin's overlaid text. These can appear in live
-  suggestions. Recorded as open in [`docs/next-steps.md`](../docs/next-steps.md).
+- **Catalogue crop quality.** Module 1's catalogue crops include fragments, collages, caption text and
+  wrong type labels. The crop quality gate (above) keeps them out of demo suggestions; the evaluation
+  pool still contains them, as it did when the results were calibrated.
 - **Two trend-weight conventions.** The demo slider mixes gain = (1 − w)·ΔH + w·ΔT, the same mix as the
   evaluation and the trade-off figure. `run_recommend.py --w-t` keeps `w_h` from the settings (0.8) and
   changes only `w_t`. At the calibrated w = 0.2 the two agree.
@@ -245,7 +280,8 @@ No Module 4 code changes are needed. Pinterest was added this way:
 2. Write a split file: `{outfit_key: "train" | "val" | "test"}`.
 3. Add an entry to `stores` in `m4_settings.json`.
 4. Run `python Module4/build_cache.py`. The fingerprint changes, so everything is rebuilt: projection,
-   trend, cross-catalogue reposts, co-occurrence and the harmony reference.
+   trend, cross-catalogue reposts, co-occurrence, the harmony reference and the crop metrics. Check the
+   crop gate on the new catalogue with `calibrate_crops.py`.
 5. Recalibrate with `eval_recovery.py --set dev --freeze`.
 
 ## Next

@@ -76,14 +76,42 @@ evaluation pending a calibration decision). Pilot numbers (224×224, 2,000 photo
 - [ ] Open: re-check `t_dup` (0.99) on the mixed pool with the visual sheets
       (`python Module4/calibrate_dup.py`, needs an owner look), as the implementation plan's Pinterest
       section asks. The recalibration above re-tuned w_t, τ, ε and the rule only.
-- [ ] Open (found 2026-10-10 while rendering `demos/recommendation_demo.png`): **catalogue crop
-      quality.** Some pool garments are mislabelled by Module 1 (Pinterest outfit 1336's `top_0.png` is a
+- [x] **Catalogue crop quality** (found 2026-10-10 while rendering `demos/recommendation_demo.png`;
+      fixed 2026-11-19 with a demo-pool crop gate, see the end of this item and
+      [`Module4/README.md`](../Module4/README.md) "Crop quality gate"). Some pool garments are mislabelled by Module 1 (Pinterest outfit 1336's `top_0.png` is a
       pair of Converse sneakers that SegFormer labelled "top"; M4 offered it as a "refresh" for a
       sweater; traced 2026-10-10: the code passes the label through correctly; also a sweatshirt
       labelled "jacket" and denim shorts labelled "pants"), some Fashion144k outfits are
       fragmentary crops, and Pinterest crops can carry the pin's overlaid caption text. These reach the
       live demo's suggestions too. Options: a minimum crop area / fill ratio, a CLIP check that the crop
       matches its label, or excluding text-heavy pins.
+      - Audit 2026-11-19 (1,500 random demo-pool crops per catalogue, through the slide filter
+        `crop_readable`: area ≥ 4,000 px, main piece ≥ 85%, fill ≥ 35%): pass rate Fashion144k **38%**,
+        Pinterest **47%**. The demo pool (`rep_demo`) only requires that the crop file exists.
+        - Fashion144k fails mostly on size (55% under 4,000 px; median crop 98×71 px).
+        - Pinterest fails more often on "split" crops (13% vs 7%): collages, flat-lays and product shots
+          next to a model, where several garments merge into one mask, plus caption text.
+        - Pinterest crops that pass can still carry caption text or holes where an arm or hair hid the
+          garment.
+        - One global threshold would empty whole types (shoes pass 3/294 and 10/196, belts and
+          sunglasses 0) because they are small, and shoes come as pairs (two pieces). Any filter has to
+          be per type.
+      - Fix 2026-11-19: `Module4/crop_quality.py` measures all 634,742 crops (six shape metrics from the
+        alpha mask, two CLIP scores from the stored embeddings: own-group probability and "text"
+        probability) into `cache/crop_metrics.npz`; `crop_gate` in `m4_settings.json` sets per-type bars,
+        applied when the pool loads (no rebuild to retune). Bars set from contact sheets
+        (`Module4/calibrate_crops.py`), one row per rejection reason:
+        - Holes check off for shoes (strappy sandals, touching boots); label check off for accessories
+          (CLIP reads dark boots, side-on bags, knit scarves as other groups; with one prompt per group it
+          also rejected cardigans, so groups now have several prompts each).
+        - Text check: at > 0.5 it catches caption overlays almost exclusively on clothing; on shoes it
+          misfires on 0.4% of plain small shoes (accepted).
+        - Keeps 341,355 of 633,810 demo candidates; smallest group Pinterest sunglasses 221.
+        - 200 random test outfits, before → after: shown suggestions failing the gate 34.8% → 0%
+          (Fashion144k inputs 31.4%, Pinterest inputs 47.6%); same verdict 97%; top suggestion harmony
+          percentile 87.3 → 87.0. `rep_eval` unchanged (tested), so the evaluation results stand.
+        - Still possible: low-resolution crops that pass (a 1,100-px shoe pair) and small stray pieces.
+          Owner look at `Module4/cache/crop_calibration/*.png` still to do.
 - [ ] Open: the AUC gate only tests single-source outfits; mixed outfits (a Pinterest piece swapped
       into a Fashion144k outfit, or the reverse) are untested apart from the M4 evaluation.
 

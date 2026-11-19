@@ -204,6 +204,15 @@ def representatives(repost: np.ndarray, type_ids: np.ndarray, area: np.ndarray, 
     return rep
 
 
+def gate_demo_pool(settings, meta: dict, scalars: np.ndarray) -> dict:
+    """Recompute rep_demo with the crop quality gate (crop_quality.py). Applied at load time, so a
+    threshold change needs no rebuild; meta.npz keeps the ungated rep_demo."""
+    from crop_quality import crop_ok, load_metrics
+    ok = crop_ok(load_metrics(settings, pool_dir(settings)), meta["type"], settings.crop_gate)
+    eligible = (meta["type"] >= 0) & meta["has_crop"] & ok
+    return {**meta, "rep_demo": representatives(meta["repost"], meta["type"], scalars[:, 2], eligible)}
+
+
 def build_pool(settings, gnn, trend_model) -> None:
     """Build and write <cache_dir>/pool/ (everything except cooc.npy, reference.json, fingerprint)."""
     out = pool_dir(settings)
@@ -308,8 +317,9 @@ class CandidatePool:
             files = json.load(f)
         with open(os.path.join(d, "outfit_keys.json"), encoding="utf-8") as f:
             keys = json.load(f)
+        meta = gate_demo_pool(settings, dict(np.load(os.path.join(d, "meta.npz"))), scal)
         return cls(stores=settings.stores, proj=np.load(os.path.join(d, "proj.npy")), emb=emb, scalars=scal,
-                   meta=dict(np.load(os.path.join(d, "meta.npz"))), files=files, outfit_keys=keys,
+                   meta=meta, files=files, outfit_keys=keys,
                    device=device, colour=load_store_colour(settings),
                    dup_rule=(settings.t_dup, settings.dup_max_colour_l1, settings.dup_max_area_ratio))
 
