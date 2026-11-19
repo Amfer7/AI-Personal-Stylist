@@ -57,7 +57,16 @@
     "pair_types": [
       "shoe",
       "sunglasses"
-    ]
+    ],
+    "max_junk_p": {
+      "default": 0.4,
+      "shoe": 1.0,
+      "bag": 1.0,
+      "hat": 1.0,
+      "belt": 1.0,
+      "scarf": 1.0,
+      "sunglasses": 1.0
+    }
   },
   "demo_exclude_queries": [
     "anarkali suit outfit",

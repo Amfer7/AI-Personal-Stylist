@@ -29,7 +29,7 @@ from m4_settings import M4Settings  # noqa: E402
 from swap_groups import SWAP_GROUPS, TYPE_ID, TYPES  # noqa: E402
 
 CELL, LABEL_H, ROW_TITLE_H = 150, 14, 18
-REASONS = ("small", "split", "sparse", "spread", "holes", "label", "text")
+REASONS = ("small", "split", "sparse", "spread", "holes", "label", "text", "junk")
 
 
 def reason(m: dict, r: int, t: str, gate: dict) -> str:
@@ -47,7 +47,9 @@ def reason(m: dict, r: int, t: str, gate: dict) -> str:
         return f"holes {m['holes'][r]:.2f}"
     if m["label_p"][r] < gate["min_label_p"].get(t, gate["min_label_p"]["default"]):
         return f"label {m['label_p'][r]:.2f}"
-    return f"text {m['text_p'][r]:.2f}"
+    if m["text_p"][r] > gate["max_text_p"]:
+        return f"text {m['text_p'][r]:.2f}"
+    return f"junk {m['junk_p'][r]:.2f}"
 
 
 def _on_white(path: str) -> Image.Image:
@@ -79,7 +81,7 @@ def main(argv=None):
     ap.add_argument("--types", nargs="+", default=list(TYPES))
     ap.add_argument("--per_row", type=int, default=10)
     ap.add_argument("--bands", nargs="+", default=None,
-                    help="only these rows, by first word: small split sparse spread holes label text just passing")
+                    help="only these rows, by first word: small split sparse spread holes label text junk just passing")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args(argv)
     s = M4Settings.load()

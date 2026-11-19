@@ -111,6 +111,14 @@ evaluation pending a calibration decision). Pilot numbers (224×224, 2,000 photo
           (Fashion144k inputs 31.4%, Pinterest inputs 47.6%); same verdict 97%; top suggestion harmony
           percentile 87.3 → 87.0. `rep_eval` unchanged (tested), so the evaluation results stand.
         - Still possible: low-resolution crops that pass (a 1,100-px shoe pair) and small stray pieces.
+        - Added 2026-11-19 (owner found an unreadable "sweater" in the demo: Fashion144k 80390, where
+          SegFormer cut the crocheted blanket she sits on together with a sweater mostly hidden by hair;
+          one solid piece, so every shape test passed, fill 0.39 and cover 0.21 just over the bars):
+          CLIP `junk_p` (fabric scraps, messy collage, blurry fragment, patterned background, hair,
+          shadow, skin vs the garment prompts), clothing only, ≤ 0.4. That crop scores 0.60 (worst 1%).
+          Removes ~1.6% of clothing; on contact sheets ≥ 0.4 is almost all shapeless blobs, 0.3–0.4 is
+          mixed. Rejected alternatives: stricter fill/cover (0.45 / 0.3 drops 9%, incl. good hats and
+          leggings); a "blanket" prompt (knit sweaters read as blankets). Demo candidates now 320,744.
           Owner look at `Module4/cache/crop_calibration/*.png` still to do.
 - [ ] Open: the AUC gate only tests single-source outfits; mixed outfits (a Pinterest piece swapped
       into a Fashion144k outfit, or the reverse) are untested apart from the M4 evaluation.

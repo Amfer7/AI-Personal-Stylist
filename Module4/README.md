@@ -206,10 +206,14 @@ in `m4_settings.json` → `crop_gate` keeps a crop if all of these hold:
 | Enclosed holes / filled outline (not for shoes, sunglasses) | ≤ 0.1 | Garments hollowed out by an arm, hair or a bag |
 | CLIP: own swap group's probability (clothing only) | ≥ 0.02 | Mislabels: sneakers as "top", a sweater as "dress" |
 | CLIP: "text / caption" probability | ≤ 0.5 | Caption overlays ("21 CHIC HALDI OUTFITS") |
+| CLIP: "junk" probability (fabric scraps, a messy collage, hair, skin, …; clothing only) | ≤ 0.4 | Masks that caught background: a crocheted blanket cut out as "sweater" (Fashion144k 80390, 0.60) |
 
-The label check is off for accessories because CLIP reads dark boots, side-on bags and knit scarves as
-other groups. The gate is applied when the pool loads, so changing a bar needs no rebuild. It keeps
-341k of 634k demo candidates (the smallest group, Pinterest sunglasses, keeps 221). On the same 200
+The label and junk checks are off for accessories because CLIP reads dark boots, side-on bags and
+knit scarves as other groups, and belts as rugs. No shape test can catch a mask that spilled onto a
+similar-looking background (the blanket and the sweater form one solid piece), hence the junk score;
+stricter fill or cover bars were tried for it and rejected, as they also drop good hats and leggings. The gate is applied when the pool loads, so changing a bar needs no rebuild. It keeps
+341k of 634k demo candidates (the smallest group, Pinterest sunglasses, keeps 221); with the junk
+check (added after the before/after figures below) and the query exclusions, 320,744. On the same 200
 outfits, every shown suggestion passes, 97% of verdicts are unchanged, and the top suggestion's harmony
 percentile goes from 87.3 to 87.0. `rep_eval` is untouched, so the evaluation results stand. Check or
 retune the bars with `python Module4/calibrate_crops.py [--types dress shoe] [--bands label text]`

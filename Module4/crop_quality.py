@@ -14,13 +14,17 @@ alpha mask and two CLIP scores from its stored embedding (computed once, cached 
     holes  enclosed gaps / the filled outline (high = garment hollowed out by an arm, hair or a bag)
     label_p  CLIP probability of the crop's own swap group among the group prompts (low = mislabelled,
              e.g. a sneaker labelled "top")
-    text_p   CLIP probability of the "text" prompts among all prompts (high = caption overlay)
+    text_p   CLIP probability of the "text" prompts against the group prompts (high = caption overlay)
+    junk_p   CLIP probability of "junk" prompts (fabric scraps, a messy collage, hair, ...) against the group
+             prompts (high = the mask caught background or a shapeless fragment, e.g. a crocheted
+             blanket labelled "sweater")
 
 The gate (settings.crop_gate) keeps a crop if area >= min_area for its type, main (top2 for
 pair_types) >= min_main, fill >= min_fill, cover >= min_cover, holes <= max_holes (not for
-pair_types: strappy sandals and two touching boots have real gaps), label_p >= min_label_p for its
-type and text_p <= max_text_p. The label check is for clothing: CLIP reads dark boots, side-on bags
-and knit scarves as other groups, so accessories set it to 0.
+pair_types: strappy sandals and two touching boots have real gaps), label_p >= min_label_p and
+junk_p <= max_junk_p for its type, and text_p <= max_text_p. The label and junk checks are for
+clothing: CLIP reads dark boots, side-on bags and knit scarves as other groups, and belts as rugs,
+so accessories switch them off.
 
 It only limits the demo pool (rep_demo); the evaluation pool (rep_eval) is untouched, so calibrated
 results stay valid.
@@ -39,7 +43,7 @@ from scipy import ndimage
 from swap_groups import SWAP_GROUPS, TYPES
 
 SHAPE_METRICS = ("area", "main", "top2", "fill", "cover", "holes")
-CLIP_METRICS = ("label_p", "text_p")
+CLIP_METRICS = ("label_p", "text_p", "junk_p")
 METRICS = SHAPE_METRICS + CLIP_METRICS
 GROUP_PROMPTS = {                  # several prompts per group; a group's probability is their sum
     "upper": ("a t-shirt", "a sweater", "a cardigan", "a shirt", "a blouse", "a jacket", "a coat", "a crop top",
@@ -54,6 +58,9 @@ GROUP_PROMPTS = {                  # several prompts per group; a group's probab
     "sunglasses": ("sunglasses",),
 }
 TEXT_PROMPTS = ("text", "a screenshot of words and letters", "a caption written on an image")
+JUNK_PROMPTS = ("a pile of fabric scraps", "a messy collage of colors", "a blurry fragment of an image",
+                "a patterned background", "a person's hair", "a shadow", "skin")   # no "blanket": knits read as one
+TEXT, JUNK = -1, -2                # prompt_group codes for the non-garment prompts
 PROMPT_TEMPLATE = "a photo of {}"
 CLIP_LOGIT_SCALE = 100.0           # ViT-B/32's learned logit scale
 _EIGHT = np.ones((3, 3), bool)
@@ -90,13 +97,16 @@ def _softmax(x: np.ndarray) -> np.ndarray:
 
 
 def prompts() -> tuple:
-    """(prompt texts, group index per prompt: -1 = text prompt). Order: GROUP_PROMPTS, then TEXT_PROMPTS."""
+    """(prompt texts, group index per prompt: TEXT / JUNK for the others). Order: GROUP_PROMPTS,
+    TEXT_PROMPTS, JUNK_PROMPTS."""
     texts, group = [], []
     for gi, ps in enumerate(GROUP_PROMPTS.values()):
         texts += [PROMPT_TEMPLATE.format(p) for p in ps]
         group += [gi] * len(ps)
-    texts += [PROMPT_TEMPLATE.format(p) for p in TEXT_PROMPTS]
-    return texts, np.array(group + [-1] * len(TEXT_PROMPTS))
+    for code, ps in ((TEXT, TEXT_PROMPTS), (JUNK, JUNK_PROMPTS)):
+        texts += [PROMPT_TEMPLATE.format(p) for p in ps]
+        group += [code] * len(ps)
+    return texts, np.array(group)
 
 
 def prompts_key() -> str:
@@ -106,28 +116,31 @@ def prompts_key() -> str:
 
 def clip_scores(emb: np.ndarray, type_ids: np.ndarray, text_emb: np.ndarray, prompt_group: np.ndarray,
                 chunk: int = 65536) -> dict:
-    """label_p and text_p per row. emb: [N, 512] image embeddings; text_emb: [P, 512] unit prompt
-    embeddings; prompt_group: [P] group index (order of GROUP_PROMPTS), -1 for text prompts.
-    label_p: own group's share among the group prompts; text_p: text prompts' share among all.
-    Unknown types get label_p NaN."""
+    """label_p, text_p and junk_p per row. emb: [N, 512] image embeddings; text_emb: [P, 512] unit
+    prompt embeddings; prompt_group: [P] group index (order of GROUP_PROMPTS), or TEXT / JUNK.
+    label_p: own group's share among the group prompts; text_p / junk_p: the text / junk prompts'
+    share against the group prompts. Unknown types get label_p NaN."""
     groups = list(GROUP_PROMPTS)
     group_of = np.array([groups.index(next(g for g, ts in SWAP_GROUPS.items() if t in ts)) for t in TYPES])
     prompt_group = np.asarray(prompt_group)
-    is_text = prompt_group < 0
-    onehot = (prompt_group[~is_text, None] == np.arange(len(groups))[None, :]).astype(np.float32)   # [P_g, G]
+    garment = prompt_group >= 0
+    onehot = (prompt_group[garment, None] == np.arange(len(groups))[None, :]).astype(np.float32)   # [P_g, G]
     type_ids = np.asarray(type_ids)
     label_p = np.full(len(emb), np.nan, np.float32)
     text_p = np.empty(len(emb), np.float32)
+    junk_p = np.empty(len(emb), np.float32)
     for s in range(0, len(emb), chunk):
         e = np.asarray(emb[s:s + chunk], np.float32)
         e = e / np.maximum(np.linalg.norm(e, axis=1, keepdims=True), 1e-8)
         logits = CLIP_LOGIT_SCALE * e @ text_emb.T
-        text_p[s:s + chunk] = _softmax(logits)[:, is_text].sum(1)
-        pg = _softmax(logits[:, ~is_text]) @ onehot
+        for out, code in ((text_p, TEXT), (junk_p, JUNK)):
+            cols = garment | (prompt_group == code)
+            out[s:s + chunk] = _softmax(logits[:, cols])[:, (prompt_group == code)[cols]].sum(1)
+        pg = _softmax(logits[:, garment]) @ onehot
         t = type_ids[s:s + chunk]
         known = t >= 0
         label_p[s:s + chunk][known] = pg[np.nonzero(known)[0], group_of[t[known]]]
-    return {"label_p": label_p, "text_p": text_p}
+    return {"label_p": label_p, "text_p": text_p, "junk_p": junk_p}
 
 
 def encode_prompts(device: str = "cpu") -> np.ndarray:
@@ -149,14 +162,15 @@ def crop_ok(metrics: dict, type_ids: np.ndarray, gate: dict) -> np.ndarray:
     """bool [N]: which crops pass the gate. Unknown types and NaN metrics fail."""
     type_ids = np.asarray(type_ids)
     known = type_ids >= 0
-    min_area, min_label = per_type(gate["min_area"]), per_type(gate["min_label_p"])
+    min_area, min_label, max_junk = (per_type(gate[k]) for k in ("min_area", "min_label_p", "max_junk_p"))
     pair = np.isin(np.arange(len(TYPES)), [TYPES.index(t) for t in gate["pair_types"]])
     t = np.where(known, type_ids, 0)
     share = np.where(pair[t], metrics["top2"], metrics["main"])
     with np.errstate(invalid="ignore"):
         ok = ((metrics["area"] >= min_area[t]) & (share >= gate["min_main"]) & (metrics["fill"] >= gate["min_fill"])
               & (metrics["cover"] >= gate["min_cover"]) & ((metrics["holes"] <= gate["max_holes"]) | pair[t])
-              & (metrics["label_p"] >= min_label[t]) & (metrics["text_p"] <= gate["max_text_p"]))
+              & (metrics["label_p"] >= min_label[t]) & (metrics["text_p"] <= gate["max_text_p"])
+              & (metrics["junk_p"] <= max_junk[t]))
     return ok & known
 
 
