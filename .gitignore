@@ -7,6 +7,7 @@ PinterestData/garment_data*/
 PinterestData/pinterest_data/
 PinterestData/store*/
 Module4/cache/
+H&M Dataset/
 *.npy
 *.npz
 *.pt

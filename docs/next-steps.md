@@ -184,6 +184,30 @@ Runbook (repo root; `<store>` = `PinterestData/store`):
       scope), Polyvore Outfits (365k items in 68k outfits, no gender, academic access on request).
       Needs background removal instead of SegFormer, a type mapping, and a check that GNN harmony and
       M3 trend matching behave on studio shots.
+      - **H&M chosen; work in progress (checkpoint 2026-11-20).** Downloaded to `H&M Dataset/`
+        (gitignored): 105,542 articles, 105,100 with a photo, all clean flat product shots on a plain
+        light-grey background. `index_group_name` gives the gender signal (Menswear 12,553; Ladieswear
+        39,737; Divided 15,149; Sport, split by `section_name`); Baby/Children (34,711) is dropped.
+      - Background removal: rembg compared on hard items (white clothes on grey, sunglasses, belts).
+        BiRefNet-lite is cleanest (the only one that keeps white sunglasses) but 3.5 s/image on CPU;
+        u2net is nearly as good at 0.18 s; isnet-general-use failed on a white blouse and print trousers.
+        u2net is used for the domain check; pick the model for the full catalogue after it (BiRefNet if
+        onnxruntime-gpu works).
+      - `Module4/hm_catalogue.py`: H&M type → Module 4 type map, adult filter, gender, cut-out, then a
+        Module 1-style folder per article (PNG + CLIP `.npy` + Module 1 attributes), so Module 2's
+        `build_feature_store.py` builds the store. A product photo has no body scale, so `pixel_count`
+        is the median area of that type in the existing stores. Resumable (skips finished articles).
+      - `Module4/hm_domain_check.py` (written, **not yet run**): type agreement (CLIP label_p), embedding
+        gap (nearest same-type store garment, H&M-vs-store linear classifier), trend-cluster coverage,
+        and the main test, GNN transfer: for test outfits of both catalogues, the candidate nearest to
+        the worn piece is a stand-in for the original; compare its GNN rank among H&M candidates with
+        its rank among an equal-sized set of store candidates.
+      - Stopped at: the 150-per-type sample was 2,294 of ~2,400 items into `H&M Dataset/check_store`.
+        Resume with:
+        1. `python Module4/hm_catalogue.py --out "H&M Dataset/check_store" --per_type 150` (finishes the rest)
+        2. `cd Module2 && python build_feature_store.py --output_root "../H&M Dataset/check_store/outputs" --store_dir "../H&M Dataset/check_store/feature_store"`
+        3. `python Module4/hm_domain_check.py --store "H&M Dataset/check_store" --n 1000`
+           (expect first-run fixes; writes `domain_check.json` and `gnn_transfer.csv` there)
 
 ---
 
