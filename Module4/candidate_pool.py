@@ -204,12 +204,35 @@ def representatives(repost: np.ndarray, type_ids: np.ndarray, area: np.ndarray, 
     return rep
 
 
-def gate_demo_pool(settings, meta: dict, scalars: np.ndarray) -> dict:
-    """Recompute rep_demo with the crop quality gate (crop_quality.py). Applied at load time, so a
-    threshold change needs no rebuild; meta.npz keeps the ungated rep_demo."""
+def excluded_by_query(settings, meta: dict, outfit_keys: dict) -> np.ndarray:
+    """bool [N]: rows whose outfit photo was found by any query in settings.demo_exclude_queries
+    (stores without a `queries` file have none excluded)."""
+    out = np.zeros(len(meta["type"]), bool)
+    banned = set(settings.demo_exclude_queries)
+    if not banned:
+        return out
+    import pandas as pd
+    for sid, spec in enumerate(settings.stores):
+        if not spec.queries:
+            continue
+        q = pd.read_csv(settings.abs(spec.queries), dtype=str)
+        bad_keys = set(q.loc[q["query"].isin(banned), "key"])
+        bad_ord = np.array([k in bad_keys for k in outfit_keys[spec.name]], bool)
+        rows = meta["source"] == sid
+        out[rows] = bad_ord[meta["outfit_ord"][rows]]
+    return out
+
+
+def gate_demo_pool(settings, meta: dict, scalars: np.ndarray, outfit_keys: dict | None = None) -> dict:
+    """Recompute rep_demo with the crop quality gate (crop_quality.py) and the query exclusions
+    (demo_exclude_queries). Applied at load time, so a change needs no rebuild; meta.npz keeps the
+    ungated rep_demo."""
     from crop_quality import crop_ok, load_metrics
+    if outfit_keys is None:
+        with open(os.path.join(pool_dir(settings), "outfit_keys.json"), encoding="utf-8") as f:
+            outfit_keys = json.load(f)
     ok = crop_ok(load_metrics(settings, pool_dir(settings)), meta["type"], settings.crop_gate)
-    eligible = (meta["type"] >= 0) & meta["has_crop"] & ok
+    eligible = (meta["type"] >= 0) & meta["has_crop"] & ok & ~excluded_by_query(settings, meta, outfit_keys)
     return {**meta, "rep_demo": representatives(meta["repost"], meta["type"], scalars[:, 2], eligible)}
 
 
@@ -317,7 +340,7 @@ class CandidatePool:
             files = json.load(f)
         with open(os.path.join(d, "outfit_keys.json"), encoding="utf-8") as f:
             keys = json.load(f)
-        meta = gate_demo_pool(settings, dict(np.load(os.path.join(d, "meta.npz"))), scal)
+        meta = gate_demo_pool(settings, dict(np.load(os.path.join(d, "meta.npz"))), scal, keys)
         return cls(stores=settings.stores, proj=np.load(os.path.join(d, "proj.npy")), emb=emb, scalars=scal,
                    meta=meta, files=files, outfit_keys=keys,
                    device=device, colour=load_store_colour(settings),

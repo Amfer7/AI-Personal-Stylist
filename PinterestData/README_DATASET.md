@@ -98,6 +98,8 @@ Raw downloads are processed by `pinterest_large_scale.py build`:
 
 Trend-tagged, occasion-based, and year-specific queries are included deliberately to pull content with known temporal context, ensuring a wide spread of `date_ym` values across the dataset. Indian fashion queries add cultural and stylistic diversity not represented in the core global-fashion query set.
 
+Indian wear is out of scope for Module 4's demo suggestions for now (2026-11-19): the 44 Indian queries are listed in `Module4/m4_settings.json` → `demo_exclude_queries`. `python PinterestData/build_outfit_queries.py` writes `store/outfit_queries.csv` (store photo key → query) for that filter. The data itself is kept.
+
 ---
 
 ## metadata.csv — Column Reference

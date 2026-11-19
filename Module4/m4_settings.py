@@ -21,6 +21,7 @@ class StoreSpec:
     store_dir: str     # feature store (features.npy, node_scalars.npy, index.json)
     output_root: str   # holds <outfit_key>/<file>.png crops
     split: str         # split.mat (Fashion144k) or {outfit_key: "train"|"val"|"test"} JSON
+    queries: str | None = None   # optional CSV (key, query): search queries behind each outfit photo
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class M4Settings:
     dup_max_colour_l1: float   # near-duplicate also needs matching colour histograms (L1 of 3 x hist, max 6)
     dup_max_area_ratio: float  # ... and crop areas within this ratio
     crop_gate: dict            # demo-pool crop quality gate (crop_quality.py); not used by the evaluation
+    demo_exclude_queries: list  # outfits found by these search queries never become demo suggestions
     cooc_min: int
     same_type: bool
     trend_floor: bool

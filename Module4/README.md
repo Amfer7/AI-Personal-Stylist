@@ -166,6 +166,7 @@ Full tables are written to `Module4/cache/eval/report_report.md` and `pinterest_
 | Refresh tolerance ε | 0.2σ | M4's detection limit: on dev its hit rate is no better than chance for harmony drops below ~0.2σ, so a smaller loss "keeps the look" |
 | Near-duplicate rule | CLIP cosine ≥ 0.99, colour-histogram L1 ≤ 0.25, size ratio ≤ 1.25 | See "Reposts and near-duplicates" below |
 | Crop quality gate (`crop_gate`) | Per type; demo pool only | Set from contact sheets 2026-11-19, see "Crop quality gate" below. Not part of the evaluation |
+| Out-of-scope queries (`demo_exclude_queries`) | The 44 Indian ethnic-wear queries; demo pool only | Indian wear is out of scope for now (decision 2026-11-19), see "Out-of-scope search topics" below |
 
 Recalibrated 2026-10-10 on the both-catalogue pool; rule, w_t and ε came out unchanged.
 
@@ -216,6 +217,23 @@ retune the bars with `python Module4/calibrate_crops.py [--types dress shoe] [--
 
 Known gaps: crops that pass can still be low-resolution (a 1,100-px shoe pair) or carry a small stray
 piece. The gate filters what Module 1 produced; it doesn't fix the masks.
+
+## Out-of-scope search topics
+
+Indian wear is out of scope for now (decision 2026-11-19): a saree offered to a man made the demo look
+broken. The Pinterest catalogue was scraped with 44 Indian queries (saree, lehenga, kurta, haldi,
+Lakme fashion week, …; see `PinterestData/README_DATASET.md`). `m4_settings.json` →
+`demo_exclude_queries` lists them, and no garment from a photo found by any of them (a pin can come
+from several queries) becomes a demo suggestion. The store's `queries` file
+(`PinterestData/store/outfit_queries.csv`, built by `PinterestData/build_outfit_queries.py`) maps
+each photo to its queries. Stores without one, like Fashion144k, lose nothing.
+
+This removes 14,762 of 55,781 Pinterest photos, 17,110 demo candidates (324,253 remain). Pinterest
+dresses are hit hardest (11,220 → 5,003): Module 1 files sarees and lehengas as "dress". A CLIP
+"Indian garment" detector was tried for strays from other queries and rejected: it flags 24% of
+Fashion144k, which is Western street style, and the remaining Pinterest garments it rates highest are
+almost all Western. Like the crop gate, this is applied when the pool loads and leaves `rep_eval`,
+the trend model and the GNN untouched, so those still include Indian wear.
 
 ## Things worth knowing
 

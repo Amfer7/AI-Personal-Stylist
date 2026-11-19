@@ -88,3 +88,16 @@ def test_exclude_drops_the_source_outfit(pool):
     t = TYPES[pool.type[0]]
     rows = set(pool.candidate_rows([t], mode="demo", exclude=("fashion144k", key)).cpu().numpy().tolist())
     assert not (own & rows)
+
+
+def test_demo_pool_leaves_out_excluded_queries(pool, settings):
+    import pandas as pd
+    spec = next(s for s in settings.stores if s.queries)
+    q = pd.read_csv(settings.abs(spec.queries), dtype=str)
+    banned = set(q.loc[q["query"].isin(settings.demo_exclude_queries), "key"])
+    assert banned                                            # the exclusion list matches real queries
+    sid = pool.source_id(spec.name)
+    demo = np.nonzero((pool.rep_demo == np.arange(pool.n)) & (pool.source == sid))[0]
+    assert not {pool.outfit_key(r) for r in demo} & banned
+    rows = np.nonzero(pool.source == sid)[0]
+    assert any(pool.outfit_key(r) in banned for r in rows[pool.rep_eval[rows] == rows])   # eval keeps them

@@ -154,6 +154,29 @@ Runbook (repo root; `<store>` = `PinterestData/store`):
 
 **Under consideration:** a vision-language-model judge as an extra evaluation signal.
 
+**Scope and display catalogue** (2026-11-19):
+- [x] **Indian wear out of scope for now** (owner decision 2026-11-19, after the demo offered a saree to
+      a man). The 44 Indian queries of the Pinterest scrape are in `demo_exclude_queries`; their photos
+      never become demo suggestions (`PinterestData/build_outfit_queries.py` → `store/outfit_queries.csv`).
+      Removes 14,762 of 55,781 Pinterest photos, 17,110 demo candidates (324,253 left; Pinterest dresses
+      11,220 → 5,003). Demo only: evaluation, trend model and GNN still include Indian wear.
+      - Before: 21% of Pinterest demo candidates came from Indian queries, 6% from menswear queries.
+      - A CLIP "saree / lehenga / kurta / salwar / anarkali" detector is unusable as a filter: it scores
+        > 0.5 on 24% of Fashion144k (Western street style) and 16% of the remaining Pinterest garments,
+        and the highest-scoring remaining Pinterest garments are almost all Western.
+- [ ] Open: **no gender signal anywhere.** M2 scores whether pieces go together, not whether they suit
+      the wearer, and both catalogues are mostly womenswear (6% of Pinterest demo candidates come from
+      menswear queries). Plan: a Menswear / Womenswear / Any choice in the demo, with a gender tag per
+      catalogue garment (queries for Pinterest, labels for a product catalogue).
+- [ ] Open: **a clean, display-only product catalogue.** Studio product photos would read better than
+      street-photo crops, and `rep_demo` / `rep_eval` are already separate, so the evaluation is not
+      affected. Candidates: H&M Personalized Fashion Recommendations (Kaggle 2022, ~105k articles,
+      Ladieswear/Menswear groups, 2018–20 purchases; check the competition terms), Fashion Product Images
+      (Myntra, Kaggle, ~44k, gender + usage labels; drop usage "Ethnic" while Indian wear is out of
+      scope), Polyvore Outfits (365k items in 68k outfits, no gender, academic access on request).
+      Needs background removal instead of SegFormer, a type mapping, and a check that GNN harmony and
+      M3 trend matching behave on studio shots.
+
 ---
 
 ## 2. Module 3 polish

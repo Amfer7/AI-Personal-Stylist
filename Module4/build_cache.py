@@ -37,7 +37,7 @@ def _raw_pool_arrays(s):
     with open(os.path.join(d, "outfit_keys.json"), encoding="utf-8") as f:
         keys = json.load(f)
     return dict(proj=np.load(os.path.join(d, "proj.npy")), emb=emb, scalars=scal,
-                meta=gate_demo_pool(s, dict(np.load(os.path.join(d, "meta.npz"))), scal), files=files,
+                meta=gate_demo_pool(s, dict(np.load(os.path.join(d, "meta.npz"))), scal, keys), files=files,
                 outfit_keys=keys)
 
 
