@@ -165,8 +165,8 @@ class Recommender:
                 verdict = "refresh"
                 js, ks, gs, rows = (np.concatenate(x) for x in (js, ks, gs, rs))
                 keys = cluster_keys(self.pool.broad[rows], self.pool.cluster[rows])
-                suggestions = [self._suggestion(table, int(js[x]), int(ks[x]), gs[x])
-                               for x in diverse_top(gs, keys, np.ones(gs.size, bool))]
+                picks = diverse_top(gs, keys, np.ones(gs.size, bool), groups=js, max_per_group=s.refresh_per_piece)
+                suggestions = [self._suggestion(table, int(js[x]), int(ks[x]), gs[x]) for x in picks]
         known = [p.trend for p in pieces if not np.isnan(p.trend)]
         return Recommendation(
             verdict=verdict, selection_rule=rule, pool_mode=table.mode, weights={"w_h": w_h, "w_t": w_t},

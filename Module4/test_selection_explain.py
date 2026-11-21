@@ -36,6 +36,15 @@ def test_diverse_top_skips_same_cluster_then_fills():
     assert diverse_top(np.array([]), np.array([]), np.array([], bool)) == []
 
 
+def test_diverse_top_caps_picks_per_group_then_fills_past_the_cap():
+    g = np.array([5.0, 4.0, 3.0, 2.0, 1.0])
+    keys = np.array([1, 2, 3, 4, 5])
+    groups = np.array([0, 0, 0, 1, 2])
+    assert diverse_top(g, keys, np.ones(5, bool), groups=groups, max_per_group=1) == [0, 3, 4]
+    assert diverse_top(g, keys, np.ones(5, bool), groups=groups, max_per_group=2) == [0, 1, 3]
+    assert diverse_top(g[:3], keys[:3], np.ones(3, bool), groups=groups[:3], max_per_group=1) == [0, 1, 2]
+
+
 def test_what_changed_describes_formality_and_type():
     cur = {"type": "skirt", "hue": 0.0, "formality": 20.0, "area": 1000.0}
     cand = {"type": "pants", "hue": 10.0, "formality": 60.0, "area": 1000.0}

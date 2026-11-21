@@ -208,6 +208,114 @@ Runbook (repo root; `<store>` = `PinterestData/store`):
         2. `cd Module2 && python build_feature_store.py --output_root "../H&M Dataset/check_store/outputs" --store_dir "../H&M Dataset/check_store/feature_store"`
         3. `python Module4/hm_domain_check.py --store "H&M Dataset/check_store" --n 1000`
            (expect first-run fixes; writes `domain_check.json` and `gnn_transfer.csv` there)
+      - **Sample finished, store built, check run (2026-11-20).** One fix: H&M article ids start with a
+        zero and the feature store keys outfits by integer, so folders are now named
+        `str(int(article_id))` (`hm_catalogue.item_key`; `articles.csv` keeps both). 2,400 items, 0 empty
+        cut-outs; the check ran first time. Results (`H&M Dataset/check_store/domain_check.json`):
+        - Type agreement: fine. H&M label_p is higher than the store's for every type except dress
+          (median 0.23, 89% pass 0.02) and scarf (0.44, 84% pass); junk_p is near zero.
+        - Embedding gap: large. A linear classifier tells H&M from store embeddings at **98.3%**;
+          nearest same-type store garment cos 0.84–0.95 (median ~0.89) vs 0.92–0.97 store-to-store.
+        - Trend: every item gets a score, but H&M collapses onto fewer M3 clusters (effective clusters
+          1.4–5.3 vs 3.7–9.5; dress 1.45 vs 4.0) and mean trend shifts by type (pants 88 vs 64, hat 18
+          vs 36). Trend scores on raw H&M embeddings reflect photo style, not only the garment.
+        - GNN transfer: **near chance.** Stand-in rank percentile mean 0.46 (chance 0.5; store 0.35),
+          top-10% 17% (store 24%), and it does not improve as the stand-in gets closer to the worn piece
+          (0.50 at cos > 0.9). H&M candidates score **+0.43σ** higher on average than store
+          candidates and beat the original outfit 20% of the time vs 10%: a domain bias, not taste.
+          Pinterest outfits show it more than Fashion144k (+0.59σ vs +0.27σ).
+        - Verdict: raw H&M embeddings are not safe for the demo pool. Harmony and trend both read the
+          studio-shot style.
+      - **Mean alignment tried (`--align mean`, `domain_check_mean.json`).** Each type's H&M CLIP
+        centroid is moved onto the store's (demo representatives), then renormalised; no labels used.
+        - Domain classifier 98.3% → 24% (no longer separable); nearest store garment cos 0.89 → 0.93.
+        - GNN bias gone: logit shift +0.43σ → **−0.06σ**; share beating the original 20% → 7.4%
+          (store 10%).
+        - GNN ranking only partly recovers: stand-in rank 0.456 → **0.416** (store 0.349); top-10% stays
+          at 17%. Pinterest outfits gain more (0.45 → 0.40) than Fashion144k (0.46 → 0.43).
+        - Trend: clusters spread further for most types (pants 2.6 → 4.8, shoe 3.4 → 6.8, skirt
+          3.4 → 6.5) but stay under the store's; scarf gets worse (5.3 → 2.3).
+        - Side effect: the CLIP label gate gets worse on shifted accessories (belt 99% → 83% pass,
+          scarf 84% → 64%). H&M types come from product metadata, so the gate should read the raw
+          embeddings, or H&M should skip the label part of the gate.
+        - Open decision: adopt the mean shift for the full catalogue (it removes the bias that would
+          let H&M items crowd out store suggestions) or try stronger alignment first (CORAL, or a
+          mapping learnt on paired data).
+      - **Decided (owner, 2026-11-20): mean shift for the full catalogue; demo suggestions from H&M
+        only.** Street stores stay in the pool for scoring, co-occurrence and evaluation; H&M has no
+        split, so it never enters `rep_eval`, the harmony reference or `cooc.npy`.
+        - Shared code: `hm_catalogue.street_type_means` (mean unit CLIP embedding per type over all
+          typed rows of the street stores, read from their feature files, so it does not depend on the
+          pool cache) and `shift_to_means`; `hm_catalogue.py --align <store_dir>` rewrites
+          `features.npy` from `features_raw.npy`. `hm_domain_check.py --align mean` uses the same code.
+        - Re-run with these means (the first run used gated demo representatives): classifier 47.6%
+          (chance), logit shift −0.05σ, beats-original 7.7% (store 10.2%), stand-in rank 0.423, top-10%
+          14.7%. Same picture as before.
+        - Background removal: onnxruntime-gpu 1.23.2 (the CUDA 12 build; 1.24+ wants CUDA 13, torch
+          here is cu126) replaces onnxruntime. On the GPU u2net takes 0.11 s/image; BiRefNet-lite is
+          *slower* on the 8 GB GPU (6.5–8 s) than on CPU (3.5 s), so the catalogue uses u2net.
+        - Settings: `StoreSpec.product_photos` (the crop gate skips its CLIP label/junk/text checks for
+          these rows: type comes from product data, and the shift makes CLIP misread accessories) and
+          `demo_sources` (stores whose garments may be demo suggestions; applied at load time).
+          `pool_fingerprint` hashes a product store's `features.npy`, since `--align` rewrites it in place.
+        - Full catalogue: 55,897 adult articles (`H&M Dataset/store`, seeded with the 2,400 sample items).
+      - **H&M is the demo pool (2026-11-20).** 55,862 written (35 empty cut-outs), feature store built
+        and aligned, `hm` store in `m4_settings.json` (`product_photos: true`, empty `split.json`),
+        `demo_sources: ["hm"]`. Cache rebuilt: 690,604 rows; 54,737 H&M demo representatives pass the
+        shape gate (shoe 2,719, bag 802, belt 376, sunglasses 410). Eval reps (190,602) and the harmony
+        reference (56,273 test outfits, σ_logit 3.119, σ_trend 26.58) are unchanged, so calibrated
+        results still hold.
+        - The first cache rebuild was stopped by Claude Code for low system memory during the crop
+          shape scan (12 processes over 690k crops); `build_cache.py --workers 4` finished it (scan
+          424 s).
+        - Tests: two pool tests assumed the old demo pool (all demo rows pass the CLIP gate; demo pool
+          larger than eval pool); updated to the product-photo gate and `demo_sources`. 103 pass.
+        - Demo verdicts, same 400 test outfits, street vs H&M suggestions: swap 14.0% vs 13.8%,
+          refresh 85.8% vs 85.5%, keep 0.2% vs 0.8%; 90.8% get the same verdict. Top suggestion's
+          harmony gain is smaller with H&M (median +0.84σ vs +1.34σ): a pool a sixth the size, no
+          longer boosted by photo style.
+        - Visual check (4 random swap outfits): suggestions are clean product cut-outs and the
+          gallery alternatives are coherent (black flats; pale-blue bags). u2net leaves grey studio
+          background inside closed loops (inside a belt-bag strap).
+        - [ ] Open: **H&M swaps lean to shoes** (21 of 55 swaps vs 9 of 56 with street suggestions;
+          pants 10 vs 17). After alignment the average logit shift is near zero for every type, but
+          the best H&M candidate scores under the best store one by ~0.17σ for shoe / hat / belt and
+          0.28–0.35σ for clothing (`gnn_transfer_mean.csv` by type), so H&M clothing loses a little
+          more than accessories. Options: per-type alignment of the top tail rather than the mean,
+          or align the colour / attribute features too (only the CLIP part is shifted now).
+          - **Trend side too (2026-11-21).** All H&M rows get a trend score (100% matched, every
+            type), but H&M clothing piles onto one M3 cluster per type: top-cluster share sweater 0.69,
+            shirt 0.65, dress 0.78, top 0.59 (street 0.17–0.37). So clothing trend has almost no top
+            tail (H&M p90 vs street p90: shirt 57 vs 96, jacket 71 vs 96, sweater 71 vs 91), while
+            H&M shoes sit above street (p90 86 vs 76; bag/belt also high). Refresh (~85% of verdicts)
+            needs ΔT > 0 and ranks on 0.8·ΔH + 0.2·ΔT, so shoes win on both terms. `decide()` pools all
+            pieces' refresh candidates and `diverse_top` diversifies by cluster only, so one winning
+            piece can take all three slots. Likely fix: score trend on the un-shifted (or per-type
+            aligned) embedding, and/or cap refresh suggestions to one or two per piece.
+          - [x] **Refresh cap (2026-11-21).** `refresh_per_piece` (default 1): refresh suggestions
+            come from different worn pieces while other pieces have options; the cap is lifted only to
+            fill the three slots (`diverse_top(groups=, max_per_group=)`). Swap verdicts are one piece
+            by design and unchanged. 105 tests pass.
+          - [x] **CORAL alignment (2026-11-21), adopted.** The per-type mean shift left the studio
+            photos' tighter spread. `hm_catalogue.py --align --method coral` (now the default) matches
+            each type's mean and covariance (Ledoit-Wolf on the H&M side). `hm_domain_check.py --align
+            mean|coral` on the full catalogue, 1,000 test outfits:
+            - domain classifier 0.76 → 0.60 (the earlier "chance" figure was the 150-per-type check
+              sample); best H&M vs best street candidate: clothing −0.30…−0.42σ → −0.00…+0.12σ, shoe
+              −0.16σ → +0.03σ; stand-in GNN rank 0.38 → 0.36 (street 0.28).
+            - effective trend clusters shirt 2.8 → 5.9, sweater 3.0 → 5.8 (street 9.1 / 8.9).
+            - The check crashed on the full catalogue (H&M has more shorts than the stores); the
+              street comparison sample is now capped at what exists.
+            - Cache rebuilt (`--workers 4`): demo reps 54,737; eval reps and harmony reference unchanged
+              (σ_logit 3.1194), so calibrated results hold. 108 tests pass.
+          - **After both fixes, 400 test outfits, H&M vs street suggestions** (same outfits):
+            verdicts swap 57 / 56, refresh 341 / 343, keep 2 / 1. Refresh suggestions: shoes 17% of
+            H&M suggestions vs 17% street; pants 19% vs 16%. Swaps: shoe 18 of 57 vs 9 of 56 (was 21
+            of 55 before CORAL); pants 12 vs 16. Median harmony gain of the top swap +1.57σ vs +2.08σ.
+          - [ ] **Remaining:** H&M swaps still pick shoes about twice as often as street (small sample:
+            57 swaps). Next to check: per-type `slot_percentile` (share of candidates beating the worn
+            piece), which depends on the whole candidate distribution, not the best one.
+        - [ ] Click through the demo in a browser with H&M suggestions.
 
 ---
 

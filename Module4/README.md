@@ -73,8 +73,9 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
    GNN** (`dense_gnn.py`) that handles hundreds of thousands of what-if outfits per piece in one
    GPU pass. Tests check that it matches M2's own `model(build_graph(...))`.
 3. **Deciding** (`Recommender.decide()`). The stored gains are turned into a verdict (`swap`,
-   `refresh` or `keep`) and three style-diverse suggestions. This step makes **no GNN calls**, so
-   changing the trend weight or the selection rule is free.
+   `refresh` or `keep`) and three style-diverse suggestions; refresh suggestions come from different
+   worn pieces while more than one has a trendier option (`refresh_per_piece`, default 1). This step
+   makes **no GNN calls**, so changing the trend weight or the selection rule is free.
 
 ## Files
 
@@ -88,6 +89,8 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
 | `calibrate_dup.py` | Contact sheets of garment pairs that pass the near-duplicate rule, by CLIP cosine band |
 | `crop_quality.py` | The demo pool's crop quality gate: shape metrics and CLIP scores per crop, the per-type rule |
 | `calibrate_crops.py` | Contact sheets of crops the gate rejects (one row per reason) and keeps, per type |
+| `hm_catalogue.py` | H&M product photos → Module 1-style folders (cut-out, CLIP, attributes); `--align` for the store |
+| `hm_domain_check.py` | Does the GNN / trend model behave on H&M studio shots? Type, embedding gap, trend, GNN transfer |
 | `harmony_reference.py` | Harmony percentiles and the score spreads (σ) used to standardise gains |
 | `outfit_state.py` | An outfit as a list of pieces; loads Module 1 output (with area normalisation) |
 | `swap_scorer.py` | Outfit score + every swap's score for one piece |
@@ -98,7 +101,7 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
 | `build_cache.py`, `run_recommend.py` | Command-line entry points |
 | `eval_recovery.py` | The evaluation: outfit sets, corruption, baselines, calibration, reports |
 | `eval_metrics.py` | Pure helpers for it: per-outfit summaries, threshold, Pareto weight, bootstrap CIs, McNemar |
-| `conftest.py`, `test_*.py` | Tests: 101 in total, one file per unit. Tests that need the real data are marked `real` |
+| `conftest.py`, `test_*.py` | Tests: 103 in total, one file per unit. Tests that need the real data are marked `real` |
 
 ## Measured performance
 
@@ -167,6 +170,7 @@ Full tables are written to `Module4/cache/eval/report_report.md` and `pinterest_
 | Near-duplicate rule | CLIP cosine ≥ 0.99, colour-histogram L1 ≤ 0.25, size ratio ≤ 1.25 | See "Reposts and near-duplicates" below |
 | Crop quality gate (`crop_gate`) | Per type; demo pool only | Set from contact sheets 2026-11-19, see "Crop quality gate" below. Not part of the evaluation |
 | Out-of-scope queries (`demo_exclude_queries`) | The 44 Indian ethnic-wear queries; demo pool only | Indian wear is out of scope for now (decision 2026-11-19), see "Out-of-scope search topics" below |
+| Demo sources (`demo_sources`) | `["hm"]`: suggestions come only from the H&M product catalogue | Owner decision 2026-11-20, see "H&M product catalogue" below. Not part of the evaluation |
 
 Recalibrated 2026-10-10 on the both-catalogue pool; rule, w_t and ε came out unchanged.
 
@@ -291,6 +295,41 @@ Checked against the data on 2026-10-07. If one stops being true, the design need
 
 If memory gets tight, the embeddings can drop to fp16, which halves them. The cosine-threshold tests
 would then need a ±1e-3 tolerance.
+
+## H&M product catalogue
+
+Demo suggestions come from H&M product photos (Kaggle "H&M Personalized Fashion Recommendations",
+`H&M Dataset/`, gitignored), not from street-photo crops: clean cut-outs read better, and every item
+has a gender tag. `hm_catalogue.py` cuts out each adult article with rembg u2net (on the GPU through
+onnxruntime-gpu 1.23, the CUDA 12 build), writes Module 1-style folders keyed by the article id
+without its leading zero, and Module 2's `build_feature_store.py` turns them into a store. 55,862
+articles; 54,737 pass the crop gate.
+
+CLIP sees the studio-photo style: a linear classifier tells H&M from street crops at 98%, and the GNN
+scored H&M candidates 0.43σ higher than street ones for it (`hm_domain_check.py`). `hm_catalogue.py
+--align` maps each type's H&M embeddings onto the street stores' mean **and covariance** for that type
+(CORAL, `--method coral`, the default; raw copy in `features_raw.npy`). The first version shifted only
+the mean. That removed the average boost but left the studio photos' tighter spread, so H&M clothing piled
+onto one M3 trend cluster per type and its best candidates scored 0.3–0.4σ under the street ones;
+swaps and refreshes leaned to shoes. Full catalogue, 1,000 test outfits (`domain_check_{mean,coral}.json`):
+
+| | mean shift | CORAL | street |
+|---|---|---|---|
+| Domain classifier accuracy (0.5 = chance) | 0.76 | 0.60 | |
+| Best H&M vs best street candidate, clothing | −0.30 to −0.42σ | −0.00 to +0.12σ | |
+| Same, shoe | −0.16σ | +0.03σ | |
+| Stand-in GNN rank (lower = better) | 0.38 | 0.36 | 0.28 |
+| Effective trend clusters, shirt / sweater | 2.8 / 3.0 | 5.9 / 5.8 | 9.1 / 8.9 |
+
+The store is marked `product_photos: true`: its crops skip the gate's CLIP label / junk / text checks
+(the type comes from product data, and the shifted embeddings make CLIP misread accessories). Its
+split file is empty, so it never enters `rep_eval`, co-occurrence or the harmony reference, and
+calibrated results stand. On 400 test outfits the demo verdicts barely move (swap 14.0% → 13.8%).
+
+    python Module4/hm_catalogue.py --out "H&M Dataset/store"
+    cd Module2 && python build_feature_store.py --output_root "../H&M Dataset/store/outputs" --store_dir "../H&M Dataset/store/feature_store"
+    python Module4/hm_catalogue.py --align "H&M Dataset/store/feature_store"
+    python Module4/build_cache.py --force --workers 4      # 12 workers ran the machine out of memory
 
 ## Adding another catalogue
 

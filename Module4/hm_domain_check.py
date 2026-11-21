@@ -16,6 +16,13 @@ H&M catalogue becomes the demo's suggestion pool, this compares an H&M sample (h
    reference for what the GNN does in its own domain.
 
     python Module4/hm_domain_check.py --store "H&M Dataset/check_store" --n 1000
+    python Module4/hm_domain_check.py --align mean    # H&M embeddings shifted onto the store's per-type mean
+
+--align mean|coral runs every check on embeddings aligned the way hm_catalogue.py --align --method
+aligns the full catalogue (mean: each type's H&M mean moved onto the street stores' mean; coral: mean
+and covariance matched); results go to domain_check_<method>.json. The checks always start from the raw
+embeddings (features_raw.npy when the store was aligned in place). CORAL needs a few hundred items per
+type for its covariances, so run it on the full catalogue ("H&M Dataset/store"), not the check sample.
 """
 from __future__ import annotations
 
@@ -35,6 +42,7 @@ if HERE not in sys.path:
 from candidate_pool import SPLIT_CODES, trend_scores  # noqa: E402
 from crop_quality import clip_scores, encode_prompts, prompts  # noqa: E402
 from harmony_reference import test_outfits  # noqa: E402
+from hm_catalogue import ALIGN_METHODS, align_embeddings  # noqa: E402
 from m2_bridge import BROAD_ID, BROAD_VOCAB, FEATURE_COLS  # noqa: E402
 from m4_settings import M4Settings  # noqa: E402
 from outfit_state import state_from_pool  # noqa: E402
@@ -42,9 +50,10 @@ from recommender import Recommender  # noqa: E402
 from swap_groups import TYPE_ID, TYPES, replacement_types  # noqa: E402
 
 
-def load_hm(store: str, gnn, trend_model, device) -> dict:
+def load_hm(store: str, gnn, trend_model, device, settings=None, align: str = "none") -> dict:
     d = os.path.join(store, "feature_store")
-    feat = np.load(os.path.join(d, "features.npy"))
+    raw = os.path.join(d, "features_raw.npy")     # a store aligned in place keeps its raw copy here
+    feat = np.load(raw if os.path.exists(raw) else os.path.join(d, "features.npy"))
     scal = np.load(os.path.join(d, "node_scalars.npy"))
     with open(os.path.join(d, "index.json"), encoding="utf-8") as f:
         index = json.load(f)
@@ -55,6 +64,8 @@ def load_hm(store: str, gnn, trend_model, device) -> dict:
     for k, es in index["outfits"].items():
         for e in es:
             type_[e["row"]], broad[e["row"]], key[e["row"]] = TYPE_ID[e["category"]], BROAD_ID[e["broad_category"]], k
+    if align != "none":
+        feat[:, :512] = align_embeddings(feat[:, :512], type_, settings, align)
     emb = feat[:, :512] / np.linalg.norm(feat[:, :512], axis=1, keepdims=True)
     trend, cluster = trend_scores(feat[:, :512], np.asarray(BROAD_VOCAB)[broad], trend_model)
     art = pd.read_csv(os.path.join(store, "articles.csv"), dtype={"key": str}).set_index("key")
@@ -232,24 +243,28 @@ def main():
     ap.add_argument("--store", default="H&M Dataset/check_store")
     ap.add_argument("--n", type=int, default=1000, help="test outfits per catalogue")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--align", choices=("none",) + ALIGN_METHODS, default="none")
     args = ap.parse_args()
     s = M4Settings.load()
+    s = s.with_(demo_sources=[sp.name for sp in s.stores if not sp.product_photos])   # compare with street crops
     store = s.abs(args.store)
     rec = Recommender.from_settings(s)
     pool, rng = rec.pool, np.random.default_rng(args.seed)
-    hm = load_hm(store, rec.gnn, rec.trend_model, pool.device)
+    hm = load_hm(store, rec.gnn, rec.trend_model, pool.device, s, args.align)
     print(f"[check] {hm['n']} H&M items")
     demo = np.nonzero(pool.rep_demo == np.arange(pool.n))[0]
-    store_rows = np.concatenate([rng.choice(demo[pool.type[demo] == t], int((hm["type"] == t).sum()), replace=False)
+    pick = lambda c, k: rng.choice(c, min(k, len(c)), replace=False)   # the full catalogue can outnumber the stores
+    store_rows = np.concatenate([pick(demo[pool.type[demo] == t], int((hm["type"] == t).sum()))
                                  for t in np.unique(hm["type"])])
     report = {"n_hm": hm["n"],
               "type_agreement": type_agreement(hm, pool, store_rows, str(pool.device)),
               "embedding_gap": embedding_gap(hm, pool, store_rows, rng),
               "trend": trend_coverage(hm, pool, store_rows)}
     df = gnn_transfer(rec, hm, args.n, rng)
-    df.to_csv(os.path.join(store, "gnn_transfer.csv"), index=False)
+    tag = "" if args.align == "none" else f"_{args.align}"
+    df.to_csv(os.path.join(store, f"gnn_transfer{tag}.csv"), index=False)
     report["gnn_transfer"] = summarise_transfer(df, rec.reference.sigma_logit)
-    with open(os.path.join(store, "domain_check.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(store, f"domain_check{tag}.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
     print(json.dumps(report, indent=1))
 

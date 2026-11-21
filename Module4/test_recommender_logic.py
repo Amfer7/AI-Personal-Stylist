@@ -136,8 +136,18 @@ def test_refresh_when_below_tau_but_trendier_options_keep_harmony():
     rec, st, _ = make(tau={"max_gain": 10.0, "topk_mean_gain": 10.0, "slot_percentile": 1.1})
     r = rec.decide(rec.score(st))
     assert r.verdict == "refresh" and r.swap_piece is None
-    assert [s.pool_row for s in r.suggestions] == [0, 2, 4]
+    assert [s.pool_row for s in r.suggestions] == [0, 5, 9]          # one per worn piece: top, leggings, shoe
     assert all(s.d_trend_z > 0 and s.d_harmony_z >= -0.25 for s in r.suggestions)
+
+
+def test_refresh_per_piece_cap_is_a_setting_and_fills_when_few_pieces_qualify():
+    tau = {"max_gain": 10.0, "topk_mean_gain": 10.0, "slot_percentile": 1.1}
+    rec, st, _ = make(tau=tau, refresh_per_piece=3)
+    assert [s.pool_row for s in rec.decide(rec.score(st)).suggestions] == [0, 2, 4]
+    rec, st, _ = make(tau=tau, refresh_per_piece=2)
+    assert [s.pool_row for s in rec.decide(rec.score(st)).suggestions] == [0, 2, 5]
+    rec, st, _ = make(trend_worn=85.0, tau=tau)                      # only the leggings slot has a trendier option
+    assert [s.pool_row for s in rec.decide(rec.score(st)).suggestions] == [5]
 
 
 def test_keep_when_nothing_qualifies():

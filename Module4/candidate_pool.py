@@ -42,8 +42,11 @@ def pool_fingerprint(settings) -> dict:
         feat = np.load(settings.abs(os.path.join(s.store_dir, "features.npy")), mmap_mode="r")
         root = settings.abs(s.output_root)
         crops = len(os.listdir(root)) if os.path.isdir(root) else 0     # outfit folders added or removed
-        stores.append({"name": s.name, "rows": int(feat.shape[0]), "split": _sha16(settings.abs(s.split)),
-                       "output_entries": crops})
+        entry = {"name": s.name, "rows": int(feat.shape[0]), "split": _sha16(settings.abs(s.split)),
+                 "output_entries": crops}
+        if s.product_photos:     # embeddings are rewritten in place by hm_catalogue.py --align
+            entry["features"] = _sha16(settings.abs(os.path.join(s.store_dir, "features.npy")))
+        stores.append(entry)
     return {"format": POOL_FORMAT, "checkpoint": _sha16(settings.abs(settings.checkpoint)),
             "trend_model": _sha16(settings.abs(settings.trend_model)), "t_dup": settings.t_dup,
             "dup_max_colour_l1": settings.dup_max_colour_l1, "dup_max_area_ratio": settings.dup_max_area_ratio,
@@ -224,15 +227,18 @@ def excluded_by_query(settings, meta: dict, outfit_keys: dict) -> np.ndarray:
 
 
 def gate_demo_pool(settings, meta: dict, scalars: np.ndarray, outfit_keys: dict | None = None) -> dict:
-    """Recompute rep_demo with the crop quality gate (crop_quality.py) and the query exclusions
-    (demo_exclude_queries). Applied at load time, so a change needs no rebuild; meta.npz keeps the
-    ungated rep_demo."""
+    """Recompute rep_demo with the crop quality gate (crop_quality.py), the query exclusions
+    (demo_exclude_queries) and demo_sources. Applied at load time, so a change needs no rebuild;
+    meta.npz keeps the ungated rep_demo. Product-photo stores skip the gate's CLIP checks."""
     from crop_quality import crop_ok, load_metrics
     if outfit_keys is None:
         with open(os.path.join(pool_dir(settings), "outfit_keys.json"), encoding="utf-8") as f:
             outfit_keys = json.load(f)
-    ok = crop_ok(load_metrics(settings, pool_dir(settings)), meta["type"], settings.crop_gate)
-    eligible = (meta["type"] >= 0) & meta["has_crop"] & ok & ~excluded_by_query(settings, meta, outfit_keys)
+    sid = lambda pick: [i for i, s in enumerate(settings.stores) if pick(s)]
+    product = np.isin(meta["source"], sid(lambda s: s.product_photos))
+    ok = crop_ok(load_metrics(settings, pool_dir(settings)), meta["type"], settings.crop_gate, shape_only=product)
+    shown = np.isin(meta["source"], sid(lambda s: s.name in settings.demo_sources))
+    eligible = (meta["type"] >= 0) & meta["has_crop"] & ok & shown & ~excluded_by_query(settings, meta, outfit_keys)
     return {**meta, "rep_demo": representatives(meta["repost"], meta["type"], scalars[:, 2], eligible)}
 
 

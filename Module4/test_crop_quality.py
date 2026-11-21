@@ -69,6 +69,9 @@ def test_gate_is_per_type_and_pairs_use_top2():
                      (500, 1.0, 1.0, 0.9, 0.5, 0.0, 0.9, 0.1, 0.6)])  # a belt CLIP reads as a rug: passes
     types = np.r_[np.full(6, TYPE_ID["dress"]), TYPE_ID["shoe"], TYPE_ID["dress"], TYPE_ID["belt"]]
     assert crop_ok(more, types, GATE).tolist() == [False, False, True, False, False, True, True, False, True]
+    # product photos skip the CLIP checks, not the shape ones
+    product = np.ones(len(types), bool)
+    assert crop_ok(more, types, GATE, shape_only=product).tolist() == [False, False, True, True, True, True, True, True, True]
 
 
 def test_clip_scores_own_group_and_text():

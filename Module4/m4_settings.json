@@ -12,6 +12,13 @@
       "output_root": "PinterestData/store/outputs",
       "split": "PinterestData/store/split.json",
       "queries": "PinterestData/store/outfit_queries.csv"
+    },
+    {
+      "name": "hm",
+      "store_dir": "H&M Dataset/store/feature_store",
+      "output_root": "H&M Dataset/store/outputs",
+      "split": "H&M Dataset/store/split.json",
+      "product_photos": true
     }
   ],
   "checkpoint": "Fashion144k_v1/ck_attr_subset_s42/clip_outfit_gnn_best.pt",
@@ -114,10 +121,14 @@
     "south indian silk saree",
     "sustainable indian fashion brands"
   ],
+  "demo_sources": [
+    "hm"
+  ],
   "cooc_min": 20,
   "same_type": false,
   "trend_floor": false,
   "vram_gb": 6.0,
+  "refresh_per_piece": 1,
   "status": {
     "w_t": "calibrated",
     "rule": "calibrated",

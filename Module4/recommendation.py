@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 class Suggestion:
     piece_file: str            # the worn piece this replaces
     pool_row: int
-    source: str                # fashion144k | pinterest
+    source: str                # fashion144k | pinterest | hm
     outfit_id: str
     file: str
     crop_path: str             # repo-relative

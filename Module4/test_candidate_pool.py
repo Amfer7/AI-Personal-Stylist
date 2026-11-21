@@ -67,9 +67,12 @@ def test_demo_pool_only_holds_garments_with_crops(pool, settings):
 def test_crop_gate_limits_the_demo_pool_only(pool, settings):
     from candidate_pool import pool_dir
     from crop_quality import crop_ok, load_metrics
-    ok = crop_ok(load_metrics(settings, pool_dir(settings)), pool.type, settings.crop_gate)
+    product = np.isin(pool.source, [i for i, s in enumerate(settings.stores) if s.product_photos])
+    ok = crop_ok(load_metrics(settings, pool_dir(settings)), pool.type, settings.crop_gate, shape_only=product)
     demo = np.nonzero(pool.rep_demo >= 0)[0]
     assert ok[demo].all()                                    # every demo suggestion passes the gate
+    shown = [pool.source_id(n) for n in settings.demo_sources]
+    assert np.isin(pool.source[demo], shown).all()           # ... and comes from a demo source
     saved = np.load(os.path.join(pool_dir(settings), "meta.npz"))
     assert (pool.rep_eval == saved["rep_eval"]).all()        # the evaluation pool is untouched
     assert (pool.rep_demo == np.arange(pool.n)).sum() < (saved["rep_demo"] == np.arange(pool.n)).sum()
@@ -77,9 +80,9 @@ def test_crop_gate_limits_the_demo_pool_only(pool, settings):
 
 def test_candidate_rows_respect_type_and_mode(pool):
     rows = pool.candidate_rows(["sunglasses"], mode="demo").cpu().numpy()
-    assert (pool.type[rows] == TYPE_ID["sunglasses"]).all()
+    assert len(rows) and (pool.type[rows] == TYPE_ID["sunglasses"]).all()
     ev = pool.candidate_rows(["sunglasses"], mode="eval").cpu().numpy()
-    assert (pool.split[ev] == SPLIT_CODES["test"]).all() and len(ev) < len(rows)
+    assert len(ev) and (pool.split[ev] == SPLIT_CODES["test"]).all()
 
 
 def test_exclude_drops_the_source_outfit(pool):

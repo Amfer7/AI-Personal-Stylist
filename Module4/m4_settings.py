@@ -17,11 +17,12 @@ SETTINGS_PATH = os.path.join(HERE, "m4_settings.json")
 
 @dataclass(frozen=True)
 class StoreSpec:
-    name: str          # "fashion144k" | "pinterest"
+    name: str          # "fashion144k" | "pinterest" | "hm"
     store_dir: str     # feature store (features.npy, node_scalars.npy, index.json)
     output_root: str   # holds <outfit_key>/<file>.png crops
     split: str         # split.mat (Fashion144k) or {outfit_key: "train"|"val"|"test"} JSON
     queries: str | None = None   # optional CSV (key, query): search queries behind each outfit photo
+    product_photos: bool = False  # studio product cut-outs, one garment per "outfit" (hm_catalogue.py)
 
 
 @dataclass(frozen=True)
@@ -41,11 +42,13 @@ class M4Settings:
     dup_max_area_ratio: float  # ... and crop areas within this ratio
     crop_gate: dict            # demo-pool crop quality gate (crop_quality.py); not used by the evaluation
     demo_exclude_queries: list  # outfits found by these search queries never become demo suggestions
+    demo_sources: list         # stores whose garments may be demo suggestions (names)
     cooc_min: int
     same_type: bool
     trend_floor: bool
     vram_gb: float
     status: dict
+    refresh_per_piece: int = 1  # refresh suggestions per worn piece while other pieces have options
 
     @classmethod
     def load(cls, path: str = SETTINGS_PATH) -> "M4Settings":

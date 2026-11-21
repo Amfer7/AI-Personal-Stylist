@@ -158,8 +158,10 @@ def per_type(bars: dict) -> np.ndarray:
     return np.array([bars.get(t, bars["default"]) for t in TYPES], np.float64)
 
 
-def crop_ok(metrics: dict, type_ids: np.ndarray, gate: dict) -> np.ndarray:
-    """bool [N]: which crops pass the gate. Unknown types and NaN metrics fail."""
+def crop_ok(metrics: dict, type_ids: np.ndarray, gate: dict, shape_only=None) -> np.ndarray:
+    """bool [N]: which crops pass the gate. Unknown types and NaN metrics fail. shape_only: bool [N],
+    rows that skip the CLIP checks (studio product photos: the type comes from product data, and the
+    embeddings are domain-shifted, which makes CLIP misread accessories)."""
     type_ids = np.asarray(type_ids)
     known = type_ids >= 0
     min_area, min_label, max_junk = (per_type(gate[k]) for k in ("min_area", "min_label_p", "max_junk_p"))
@@ -167,11 +169,13 @@ def crop_ok(metrics: dict, type_ids: np.ndarray, gate: dict) -> np.ndarray:
     t = np.where(known, type_ids, 0)
     share = np.where(pair[t], metrics["top2"], metrics["main"])
     with np.errstate(invalid="ignore"):
-        ok = ((metrics["area"] >= min_area[t]) & (share >= gate["min_main"]) & (metrics["fill"] >= gate["min_fill"])
-              & (metrics["cover"] >= gate["min_cover"]) & ((metrics["holes"] <= gate["max_holes"]) | pair[t])
-              & (metrics["label_p"] >= min_label[t]) & (metrics["text_p"] <= gate["max_text_p"])
-              & (metrics["junk_p"] <= max_junk[t]))
-    return ok & known
+        shape = ((metrics["area"] >= min_area[t]) & (share >= gate["min_main"]) & (metrics["fill"] >= gate["min_fill"])
+                 & (metrics["cover"] >= gate["min_cover"]) & ((metrics["holes"] <= gate["max_holes"]) | pair[t]))
+        clip = ((metrics["label_p"] >= min_label[t]) & (metrics["text_p"] <= gate["max_text_p"])
+                & (metrics["junk_p"] <= max_junk[t]))
+    if shape_only is not None:
+        clip |= np.asarray(shape_only, bool)
+    return shape & clip & known
 
 
 def metrics_path(settings) -> str:

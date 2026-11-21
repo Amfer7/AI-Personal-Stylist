@@ -41,11 +41,11 @@ def _raw_pool_arrays(s):
                 outfit_keys=keys)
 
 
-def _ensure_crop_metrics(s) -> None:
+def _ensure_crop_metrics(s, workers: int = 12) -> None:
     if metrics_fresh(s, pool_dir(s)):
         return
     t = time.time()
-    n = len(build_metrics(s, pool_dir(s))["area"])
+    n = len(build_metrics(s, pool_dir(s), workers=workers)["area"])
     print(f"[m4-cache] crop metrics: {n} crops measured in {time.time() - t:.0f}s")
 
 
@@ -54,13 +54,14 @@ def main(argv=None):
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--device", default=None)
     ap.add_argument("--settings", default=None, help="another settings JSON (default: Module4/m4_settings.json)")
+    ap.add_argument("--workers", type=int, default=12, help="processes for the crop shape scan (fewer = less memory)")
     args = ap.parse_args(argv)
 
     s = M4Settings.load(args.settings) if args.settings else M4Settings.load()
     dev = pick_device(args.device)
     apply_vram_cap(s.vram_gb, dev)
     if is_fresh(s) and not args.force:
-        _ensure_crop_metrics(s)
+        _ensure_crop_metrics(s, args.workers)
         print(f"[m4-cache] up to date: {pool_dir(s)}")
         return
     fp = os.path.join(pool_dir(s), "fingerprint.json")
@@ -70,7 +71,7 @@ def main(argv=None):
     t = time.time()
     build_pool(s, gnn, load_trend_model(s.abs(s.trend_model)))
     print(f"[m4-cache] pool built in {time.time() - t:.0f}s")
-    _ensure_crop_metrics(s)
+    _ensure_crop_metrics(s, args.workers)
     pool = CandidatePool(stores=s.stores, **_raw_pool_arrays(s), device=dev)
     CooccurrenceFilter.from_outfits(train_outfit_types(pool), s.cooc_min).save(
         os.path.join(pool_dir(s), "cooc.npy"))
