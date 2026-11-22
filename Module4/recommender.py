@@ -101,7 +101,8 @@ class Recommender:
             rows_np = rows.cpu().numpy()
             ct = self.pool.trend[rows_np].astype(np.float64)
             known = ~np.isnan(ct) & (not np.isnan(p.trend))
-            d_t = np.where(known, (ct - p.trend) / self.reference.sigma_trend, 0.0)
+            # worn trend at the pool's float32 precision, so a same-cluster candidate has ΔT exactly 0
+            d_t = np.where(known, (ct - float(np.float32(p.trend))) / self.reference.sigma_trend, 0.0)
             if np.isnan(p.trend):
                 flags.append("worn piece has no trend score: ΔT = 0")
             out.append(PieceSwaps(rows_np, logits, (logits - r0) / self.reference.sigma_logit, d_t, known, flags))
@@ -156,7 +157,7 @@ class Recommender:
         else:
             js, ks, gs, rs = [], [], [], []
             for j, ps in enumerate(table.pieces):
-                ok = np.nonzero(ps.trend_known & (ps.d_t > 0) & (ps.d_h >= -eps))[0]
+                ok = np.nonzero(ps.trend_known & (ps.d_t > 0) & (ps.d_h >= -eps) & (G[j] > 0))[0]
                 js.append(np.full(ok.size, j))
                 ks.append(ok)
                 gs.append(G[j][ok])

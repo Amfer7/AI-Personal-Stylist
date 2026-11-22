@@ -73,8 +73,9 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
    GNN** (`dense_gnn.py`) that handles hundreds of thousands of what-if outfits per piece in one
    GPU pass. Tests check that it matches M2's own `model(build_graph(...))`.
 3. **Deciding** (`Recommender.decide()`). The stored gains are turned into a verdict (`swap`,
-   `refresh` or `keep`) and three style-diverse suggestions; refresh suggestions come from different
-   worn pieces while more than one has a trendier option (`refresh_per_piece`, default 1). This step
+   `refresh` or `keep`) and three style-diverse suggestions. A refresh suggestion must be trendier
+   (ΔT > 0), lose at most ε harmony and have a positive combined gain; refresh suggestions come from
+   different worn pieces while more than one has such an option (`refresh_per_piece`, default 1). This step
    makes **no GNN calls**, so changing the trend weight or the selection rule is free.
 
 ## Files
@@ -99,6 +100,9 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
 | `recommendation.py` | The `Recommendation` result: JSON in/out and a text summary |
 | `recommender.py` | Ties it together: `score()`, `decide()`, `recommend()` |
 | `build_cache.py`, `run_recommend.py` | Command-line entry points |
+| `photo_batch.py` | Whole pipeline on a folder of photos → results table + overlay sheet (phone-photo set, demo photo picks) |
+| `human_study.py` | Blind A/B pairs (Module 4 swap vs random swap) for a rater study, and scoring of the form responses |
+| `catalogue_qa.py` | Numbered sheets of random suggestion items per type for manual QA, and the defect rate from the marks |
 | `eval_recovery.py` | The evaluation: outfit sets, corruption, baselines, calibration, reports |
 | `eval_metrics.py` | Pure helpers for it: per-outfit summaries, threshold, Pareto weight, bootstrap CIs, McNemar |
 | `conftest.py`, `test_*.py` | Tests: 103 in total, one file per unit. Tests that need the real data are marked `real` |

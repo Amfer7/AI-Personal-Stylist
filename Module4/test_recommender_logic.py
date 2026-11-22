@@ -150,6 +150,26 @@ def test_refresh_per_piece_cap_is_a_setting_and_fills_when_few_pieces_qualify():
     assert [s.pool_row for s in rec.decide(rec.score(st)).suggestions] == [5]
 
 
+def test_same_trend_score_is_no_trend_gain_despite_float32_storage():
+    # pool trends are float32: 82.86 is stored as 82.86000061, the worn piece's score is a Python float
+    rec, st, _ = make(trend_worn=82.86, tau={"max_gain": 10.0, "topk_mean_gain": 10.0, "slot_percentile": 1.1})
+    rec.pool.trend[9] = 82.86
+    table = rec.score(st)
+    shoe = table.pieces[3]
+    assert shoe.d_t[shoe.rows.tolist().index(9)] == 0.0
+    assert 9 not in [s.pool_row for s in rec.decide(table).suggestions]
+
+
+def test_refresh_never_offers_a_net_loss_to_fill_the_per_piece_cap():
+    rec, st, _ = make(eps=2.0, tau={"max_gain": 10.0, "topk_mean_gain": 10.0, "slot_percentile": 1.1})
+    for row, trend in ((9, 30.0), (10, 60.0), (5, 30.0), (8, 60.0), (12, 60.0)):
+        rec.pool.trend[row] = trend    # each non-top slot's only trendier option lowers harmony (ΔH < 0)
+    r = rec.decide(rec.score(st))
+    assert r.verdict == "refresh"
+    assert all(s.gain > 0 for s in r.suggestions)
+    assert [s.pool_row for s in r.suggestions] == [0, 2, 4]
+
+
 def test_keep_when_nothing_qualifies():
     rec, st, _ = make(trend_worn=100.0, tau={"max_gain": 10.0, "topk_mean_gain": 10.0, "slot_percentile": 1.1})
     r = rec.decide(rec.score(st))
