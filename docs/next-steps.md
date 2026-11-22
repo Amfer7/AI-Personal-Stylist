@@ -6,6 +6,22 @@ Current state: **M1 Perception: complete · M2 Harmony GNN: complete (AUC ≈ 0.
 
 ---
 
+## 0. Phase 3 Review 3 (2026-11-24)
+
+Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 2026-11-22:
+- Have: implementation for all four modules, results with baselines (M2 AUC 0.7469 at Review 2 →
+  0.8155; M4 hit rate 72.2% vs best baseline 42.2%, chance 31.4%), tests (M1 9, M3 7, M4 77 quick +
+  31 `real`, all pass; M1's only pass when run from `Module1/`; M2 has no pytest suite, it is gated by
+  `auc_gate.py` and the evaluation instead), slide figures in `demos/`.
+- Missing from the repo: Review 2 panel remarks, project report, IEEE paper draft, target venues.
+- Deviations from Review 2 to explain: YOLOS / DeepFashion2 segmentation → SegFormer; trend score
+  is descriptive, not a forecast (backtest ρ < 0); H&M display catalogue + CORAL added; Indian wear
+  out of demo scope.
+- Demo risk: never clicked through in a browser with H&M suggestions; no gender filter.
+- Not for this review (future work): style-invariant encoder, GNN fine-tune, human study.
+
+---
+
 ## 1. Module 4: Recommendation engine
 
 Design is complete: see [`module4-design.md`](module4-design.md) (plain language) and
@@ -316,6 +332,17 @@ Runbook (repo root; `<store>` = `PinterestData/store`):
             57 swaps). Next to check: per-type `slot_percentile` (share of candidates beating the worn
             piece), which depends on the whole candidate distribution, not the best one.
         - [ ] Click through the demo in a browser with H&M suggestions.
+      - **Style-invariant embedding: planned (2026-11-21).** Decision: replace the CORAL patch with a
+        learned bridge between photo styles. Product-only training would move the gap to the user's
+        phone photo, so one garment embedding is trained for consumer, phone and studio photos alike.
+        Roadmap `docs/superpowers/plans/2026-11-21-style-invariant-roadmap.md`: Phase 1 evaluation
+        suite and baseline (detailed plan `2026-11-21-phase1-evaluation-suite.md`), Phase 2 encoder
+        (contrastive fine-tune of CLIP ViT-B/32 on DeepFashion2 consumer/shop pairs + phone-style
+        augmentation + distillation), Phase 3 re-embed stores, refit trend, retrain GNN with Polyvore
+        Outfits and hard negatives, Phase 4 Module 4 recalibration and blind human study on phone
+        photos. Zero-shot CLIP stays in a separate `clip_zs.npy`, since fine-tuning breaks text alignment.
+        - [ ] Request DeepFashion2 access (form on its GitHub page; password by email).
+        - [ ] Collect the phone-photo set (`docs/phone-photo-set.md`, written in Phase 1 Task 6).
 
 ---
 
