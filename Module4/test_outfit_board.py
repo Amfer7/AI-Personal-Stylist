@@ -35,3 +35,13 @@ def test_corrupt_image_draws_placeholder(tmp_path):
     bad.write_bytes(b"not an image")
     out = outfit_board([(str(bad), "x", False)], str(tmp_path / "c.png"))
     assert Image.open(out).convert("RGB").getpixel((PAD + 5, PAD + 5)) == PLACEHOLDER
+
+
+def test_upscale_enlarges_small_crops_to_the_tile(tmp_path):
+    small = _crop(tmp_path / "s.png", (40, 20), (30, 160, 30))
+    plain = Image.open(outfit_board([(small, "", False)], str(tmp_path / "p.png"))).convert("RGB")
+    big = Image.open(outfit_board([(small, "", False)], str(tmp_path / "u.png"), upscale=True)).convert("RGB")
+    edge = PAD + BORDER + 2                         # near the tile's left edge, mid-height
+    mid = PAD + TILE // 2
+    assert plain.getpixel((edge, mid)) == (255, 255, 255)      # default: a 40-px crop stays small
+    assert big.getpixel((edge, mid)) == (30, 160, 30)          # upscale: it fills the tile's width

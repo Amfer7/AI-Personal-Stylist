@@ -14,11 +14,70 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
   31 `real`, all pass; M1's only pass when run from `Module1/`; M2 has no pytest suite, it is gated by
   `auc_gate.py` and the evaluation instead), slide figures in `demos/`.
 - Missing from the repo: Review 2 panel remarks, project report, IEEE paper draft, target venues.
-- Deviations from Review 2 to explain: YOLOS / DeepFashion2 segmentation → SegFormer; trend score
-  is descriptive, not a forecast (backtest ρ < 0); H&M display catalogue + CORAL added; Indian wear
-  out of demo scope.
+- Phase 3 Review 2 deck (`PW26_DS_04_Sem7_review2.pdf`, local only) already presented all four
+  modules (M4 on the 634,742-garment street pool, pseudocode, 72% / 69% hit rates, ablation),
+  two other-domain slides (virtual try-on, interior design) and 12 references. Its demo pool claim
+  is now out of date: suggestions come from H&M (55,862), street stores only score and evaluate.
+- New since Review 2: crop quality gate, Indian wear out of demo suggestions, H&M catalogue + domain
+  check + CORAL alignment, refresh cap, style-invariant roadmap.
+- [x] **Review 1 suggestion: non-human subjects (done 2026-11-22).** 16 Unsplash photos in
+  `samples/nonhuman/` (13 dressed pets, 1 undressed dog, 2 person + pet; sources in `manifest.csv`).
+  - Before: every photo produced an outfit. The undressed golden retriever's face became a
+    "shirt_blouse" with harmony 100/100; a cat in a suit got 6 garments (pants, shoe, sunglasses on
+    paws and fur); median harmony of the 13 dressed pets 89.7, all with suggestions.
+  - Signals compared: whole-image CLIP P(person) separates the animal photos (≤ 0.23) but puts
+    real people in elaborate garments below 0.3 (Pinterest saree / lehenga / sherwani; 29% of 300
+    Pinterest photos < 0.3, Fashion144k minimum 0.34): rejected. SegFormer body-part pixel share
+    overlaps: rejected. COCO YOLO11m-seg "animal and no person": all 13 animal-only photos, 0 of 600
+    real photos (300 Fashion144k, 300 Pinterest): adopted.
+  - `Module1/subject_check.py` in `run_single_image()` (live path only, stores unchanged): animal
+    and no person → stop with "No person found, only an animal"; person + animal → animal-only
+    pixels (grown 1% of the longer side) excluded before garment parsing. CPU (~0.3 s), since the
+    installed torchvision is a CPU build and its NMS rejects CUDA tensors.
+  - After: 13/13 animal-only photos stop. The 2 pet photos showing only a person's legs give "no
+    garments" (SegFormer had put every garment on the pet; legs-only people come out as background).
+    The 2 person + pet photos are analysed with the pet removed (man with cat: harmony 31 → 41).
+  - Also fixed: a photo with 0 garments crashed Module 2 in the demo with a raw traceback; the demo
+    now stops with "No garments found". Tests: Module 1 19, Module 3 7, Module 4 112 pass.
+  - Limits: COCO species names are unreliable ("bear" for a cat in a suit, "sheep" for a greyhound),
+    so the message says "an animal"; two people in one photo are still parsed as one outfit.
+- Changes since Phase 2 (sem 6): YOLOS / DeepFashion2 segmentation → SegFormer; trend score is
+  descriptive, not a forecast (backtest ρ < 0).
 - Demo risk: never clicked through in a browser with H&M suggestions; no gender filter.
+- End-to-end check 2026-11-22 (`run_recommend.py --photo samples/image2.jpg`, H&M pool): runs, 30 s
+  cold, 41,866 what-if outfits in 0.69 s, verdict refresh. **Bug:** suggestion 2 (pants → H&M
+  299668015) has harmony 79 → 73, ΔT_z 2.3e-8 and overall gain −0.16. It passes the refresh test
+  ΔT > 0 only through float32 rounding (82.86000061 vs 82.86: same trend cluster); ΔH −0.199σ is
+  just inside ε 0.2σ, and the one-per-piece cap pulls it in ahead of better shoe options.
+  - [x] Fixed 2026-11-22: ΔT is computed against the worn trend rounded to float32 (same cluster →
+    exactly 0), and refresh candidates need combined gain > 0. Two tests, 110 Module 4 tests pass
+    (incl. `real`). 400 test outfits (200 per street source, H&M suggestions), before → after:
+    verdicts identical (refresh 330, swap 68, keep 2), suggestions with gain ≤ 0 8 → 0 (of 1,190),
+    8 outfits' suggestions changed. Harmony-down suggestions 62 → 54: the rest are refresh picks
+    within ε whose trend gain outweighs the dip (by design). Evaluation results unaffected (they
+    score swap verdicts). On `image2.jpg` all three refresh picks are now shoes, since no other
+    piece has a trendier option with a positive gain: the known shoe lean.
 - Not for this review (future work): style-invariant encoder, GNN fine-tune, human study.
+- **Team testing kits (2026-11-22), `docs/review3-kits.md`.** Four human tasks, owners to fill in,
+  results due 23 Nov 18:00:
+  1. Human study pilot: `Module4/human_study.py build` made 40 blind A/B questions from 20 street
+     test outfits with a "swap" verdict (10 Fashion144k, 10 Pinterest): original vs Module 4's top
+     swap, and original vs a random replacement from the same candidate list (same H&M catalogue, so
+     a liking for studio photos cancels out). First build: tiny street crops next to full-size H&M
+     cut-outs gave the replacement away, and some gate-passing crops were unreadable; fixed with
+     `outfit_board(upscale=True)` and a 4,000-px minimum garment area (the slide figures' bar). With
+     that bar the swaps are mostly clothing (shoe 1 of 20; the first build had 8 of 20 shoes).
+  2. Phone-photo set: `Module4/photo_batch.py --photos <folder>` (results.csv, summary, overlay
+     sheet); checked on `samples/nonhuman/` (same results as above).
+  3. Usability checklist and bug log for the demo (owner: the user, 2026-11-22).
+  4. Catalogue QA: `Module4/catalogue_qa.py sheets` drew 30 random suggestable H&M items per type
+     (480 items, 16 sheets) with a `marks.csv` to fill; `score` gives defect rates. Visible already:
+     studio background left inside closed loops (chain belt).
+  Tests: human study 3, photo batch 3, catalogue QA 2, outfit board +1; Module 4 unit tests 88 pass.
+- Demo on review day (owner decision 2026-11-22): runs on this machine, reached remotely through a
+  Gradio share link. To do with the frontend overhaul: `--share` and `--auth` flags in `demo.py`
+  (a share link is public, so it needs a password); pre-screen the team's demo photos for verdicts;
+  warm start; an offline run (`HF_HUB_OFFLINE=1`); a backup screen recording.
 
 ---
 

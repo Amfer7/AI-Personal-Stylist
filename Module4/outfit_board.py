@@ -25,20 +25,26 @@ def _font(size: int):
         return ImageFont.load_default(size=size)
 
 
-def _fit(path):
+def _fit(path, upscale: bool = False):
     if not path or not os.path.exists(path):
         return None
     try:
         with Image.open(path) as im:
             im = im.convert("RGBA")
-            im.thumbnail((TILE - 2 * BORDER, TILE - 2 * BORDER))
+            side = TILE - 2 * BORDER
+            if upscale:
+                f = side / max(im.size)
+                return im.resize((max(1, round(im.width * f)), max(1, round(im.height * f))), Image.LANCZOS)
+            im.thumbnail((side, side))
             return im.copy()
     except OSError:     # corrupt or unreadable file (PIL's UnidentifiedImageError is an OSError)
         return None
 
 
-def outfit_board(tiles, out_path: str, title: str | None = None) -> str:
-    """tiles: [(crop_path or None, caption, highlight)]. Writes a PNG and returns out_path."""
+def outfit_board(tiles, out_path: str, title: str | None = None, upscale: bool = False) -> str:
+    """tiles: [(crop_path or None, caption, highlight)]. Writes a PNG and returns out_path.
+    upscale: enlarge small crops to fill their tile (the human study, where street crops are small and
+    catalogue cut-outs large, so tile size would otherwise give the replacement away)."""
     n = max(1, len(tiles))
     top = TITLE_H if title else 0
     board = Image.new("RGB", (PAD + n * (TILE + PAD), top + PAD + TILE + CAPTION_H + PAD), "white")
@@ -48,7 +54,7 @@ def outfit_board(tiles, out_path: str, title: str | None = None) -> str:
         draw.text((PAD, PAD // 2 + 4), title, fill=TEXT, font=_font(18))
     for i, (path, caption, highlight) in enumerate(tiles):
         x, y = PAD + i * (TILE + PAD), top + PAD
-        im = _fit(path)
+        im = _fit(path, upscale)
         if im is None:
             draw.rectangle([x, y, x + TILE - 1, y + TILE - 1], fill=PLACEHOLDER)
             draw.text((x + 10, y + TILE // 2 - 8), "no image", fill=TEXT, font=font)
