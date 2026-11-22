@@ -29,6 +29,7 @@ if current_dir not in sys.path:
 
 from yolo_detect_and_crop import process_image as process_image_yolo, DEFAULT_MODEL_NAME
 from fashion_segmenter import process_image_segformer
+from subject_check import check_subjects, decide
 from clip_extract_embeddings import extract_folder_embeddings
 
 
@@ -40,7 +41,8 @@ def run_single_image(
     model_name: str = "segformer",
     specific: bool = True,
     remove_bg: bool = True,
-    device: Optional[str] = None
+    device: Optional[str] = None,
+    subject_check: bool = True
 ) -> dict:
     """
     Runs the complete pipeline for a single real image.
@@ -50,6 +52,10 @@ def run_single_image(
       2. Pixel-accurate transparent RGBA garment PNGs.
       3. Save metadata.json and visual overlay <image_id>_vis.jpg.
       4. Compute 512-D normalized CLIP vector embeddings (.npy).
+
+    subject_check (SegFormer path): find people and animals first (subject_check.py). An animal with
+    no person stops here with status "animal_no_person" and no garments; a pet next to a person is
+    masked out. The result's "status" is "ok", "person_with_animal" or "animal_no_person".
     """
     start_time = time.time()
     if image_id is None:
@@ -64,12 +70,29 @@ def run_single_image(
     print(f"  Background Removal: {'Enabled (Transparent RGBA)' if remove_bg else 'Disabled (Raw BBox)'}")
 
     # Dispatch to SegFormer (default) or YOLO
+    status = "ok"
     if model_name.lower() in ["segformer", "clothes", "default"]:
+        exclude_mask = None
+        if subject_check:
+            subjects = check_subjects(image_path, device=device)
+            status = decide(subjects.persons, subjects.animals)
+            print(f"  Subjects          : {subjects.persons} person(s), animals {subjects.animals or 'none'} -> {status}")
+            if status == "animal_no_person":
+                # generic wording: COCO names a cat in a suit "bear" and a greyhound "sheep"
+                return {
+                    "image_id": image_id, "status": status,
+                    "message": "No person found, only an animal. "
+                               "The stylist analyses outfits worn by people.",
+                    "output_dir": os.path.join(output_root, image_id), "garments": [], "num_garments": 0,
+                    "num_embeddings": 0, "elapsed_seconds": round(time.time() - start_time, 2)
+                }
+            exclude_mask = subjects.exclude_mask
         result = process_image_segformer(
             image_path=image_path,
             output_root=output_root,
             image_id=image_id,
-            device=device
+            device=device,
+            exclude_mask=exclude_mask
         )
     else:
         result = process_image_yolo(
@@ -102,6 +125,8 @@ def run_single_image(
 
     return {
         "image_id": image_id,
+        "status": status,
+        "message": "",
         "output_dir": out_folder,
         "garments": result["garments"],
         "num_garments": result["num_garments"],

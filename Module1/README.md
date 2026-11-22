@@ -15,6 +15,23 @@ from it, and Module 4 builds "what-if" outfits from it.
 
 ## How it works
 
+### 0. Check who is in the photo (live photos only)
+`subject_check.py` runs **YOLO11m-seg** (COCO instance segmentation, CPU, ~0.3 s) before anything else.
+SegFormer assumes a person: on an undressed golden retriever it labelled the dog's face "shirt_blouse"
+and the outfit scored harmony 100/100.
+- **An animal and no person:** the pipeline stops with "No person found, only an animal" and writes no
+  garments.
+- **A person and an animal:** pixels on the animal (grown by 1% of the photo's longer side) but not on a
+  person are treated as background, so a pet's sweater is not counted as the owner's clothes.
+- **Otherwise:** unchanged. Flat-lays and product shots are not blocked.
+
+Measured on 16 Unsplash photos (`samples/nonhuman/`, local only, sources in its `manifest.csv`): all 13
+animal-only photos stop; on 600 real outfit photos (300 Fashion144k, 300 Pinterest) it never fires. A
+whole-image CLIP "is this a person?" score was rejected: it put people in elaborate garments (saree,
+lehenga, sherwani) below 0.3. Species names are not shown to the user, since COCO called a cat in a suit
+a "bear". Only `run_single_image()` runs this check; feature-store builds call
+`process_image_segformer()` directly and are unchanged. Weights download to `Module1/weights/` on first use.
+
 ### 1. Find and cut out each garment
 **SegFormer** (`mattmdjaga/segformer_b2_clothes`) labels every pixel of the photo: upper clothes, pants,
 skirt, dress, shoes, bag, hat, belt, scarf, sunglasses, or skin/hair/background (discarded). This is
@@ -104,6 +121,7 @@ The easiest way to see it is the repo-root web demo: `python demo.py`, then choo
 | File | Role |
 |---|---|
 | `run_pipeline.py` | Entry point: one image or a folder → `outputs/<id>/` |
+| `subject_check.py` | Person / animal check before parsing (YOLO11m-seg) |
 | `fashion_segmenter.py` | SegFormer segmentation + CLIP subtype classification |
 | `bg_removal.py` | Transparent cut-outs (mask-based, GrabCut fallback) |
 | `clip_extract_embeddings.py` | 512-D CLIP embeddings |
@@ -111,6 +129,7 @@ The easiest way to see it is the repo-root web demo: `python demo.py`, then choo
 | `category_mapping.py` | Category names and broad categories |
 | `render_perception_demo.py` | Slide figure: photo → garments + attributes |
 | `test_pipeline.py` | Checks (512-D unit-length embeddings, colour ignores background, …) |
+| `test_subject_check.py` | Person / animal rules, pet masking, pipeline stop; real photos when present |
 | `yolo_detect_and_crop.py` | Older YOLO-based detector, kept for reference (not the default) |
 
 **Note:** `Module3/` keeps identical copies of `fashion_segmenter.py`, `attribute_analyzer.py` and
@@ -122,3 +141,6 @@ The easiest way to see it is the repo-root web demo: `python demo.py`, then choo
   "corduroy" (confidence 0.34). Module 2 drops them (see [`docs/gnn-training.md`](../docs/gnn-training.md)).
   Colour, silhouette and the outfit-level features are reliable.
 - Belts and small accessories aren't always split out as separate items.
+- SegFormer needs a visible person: a crop showing only legs and boots comes out as background, so
+  such photos give "no garments".
+- Two people in one photo are parsed as one outfit.

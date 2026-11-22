@@ -184,13 +184,17 @@ def classify_crop_clip(
 def extract_garment_segments(
     image: Image.Image,
     min_pixel_area: int = 500,
-    device: Optional[str] = None
+    device: Optional[str] = None,
+    exclude_mask: Optional[np.ndarray] = None
 ) -> List[Dict]:
     """
     Extracts all detected clothing items with pixel-accurate alpha transparency and
-    accurate fashion categories.
+    accurate fashion categories. exclude_mask (H x W bool): pixels treated as background,
+    e.g. a pet next to the person (subject_check.py).
     """
     pred_mask, id2label = segment_clothing(image, device=device)
+    if exclude_mask is not None:
+        pred_mask = np.where(exclude_mask, 0, pred_mask)
     img_rgba = np.array(image.convert("RGBA"))
     orig_h, orig_w = pred_mask.shape
 
@@ -333,7 +337,8 @@ def process_image_segformer(
     output_root: str = "outputs",
     image_id: Optional[str] = None,
     save_vis: bool = True,
-    device: Optional[str] = None
+    device: Optional[str] = None,
+    exclude_mask: Optional[np.ndarray] = None
 ) -> Dict:
     """
     Complete Stage 1 pipeline powered by SegFormer + CLIP:
@@ -350,7 +355,7 @@ def process_image_segformer(
     print(f"[PROCESS] Parsing garments in '{image_path}' (ID: {image_id}) with Fashion SegFormer...")
     image = Image.open(image_path).convert("RGB")
 
-    garments = extract_garment_segments(image, device=device)
+    garments = extract_garment_segments(image, device=device, exclude_mask=exclude_mask)
     garments_meta = []
 
     for g in garments:

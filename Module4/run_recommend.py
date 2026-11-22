@@ -34,7 +34,9 @@ def segment_photo(photo: str, out_root: str, device=None) -> str:
         sys.path.insert(0, m1)
     from run_pipeline import run_single_image
     image_id = os.path.splitext(os.path.basename(photo))[0]
-    run_single_image(image_path=photo, image_id=image_id, output_root=out_root, device=device)
+    res = run_single_image(image_path=photo, image_id=image_id, output_root=out_root, device=device)
+    if res.get("status") == "animal_no_person":
+        raise SystemExit(res["message"])
     return os.path.join(out_root, image_id)
 
 

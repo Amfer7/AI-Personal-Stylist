@@ -234,8 +234,15 @@ def analyze(image_path, module, device, pool_mode, same_type, no_trend_drop, rul
         log.append(f">> Module 1 — perception on {os.path.basename(image_path)}")
         res = run_single_image(image_path=image_path, image_id=IMAGE_ID,
                                output_root=DEMO_OUT, device=dev)
+        if res.get("status") == "animal_no_person":     # stop: the outfit folder still holds the last photo
+            log.append(f"   {res['message']}")
+            return (None, None, None, "\n".join(log)) + _m4_empty(res["message"])
         log.append(f"   {res['num_garments']} garments, "
                    f"{res['num_embeddings']} embeddings in {res['elapsed_seconds']}s")
+        if not res["num_garments"]:
+            msg = "No garments found in this photo. Try a clearer, full-body photo of a person."
+            log.append(f"   {msg}")
+            return (None, None, None, "\n".join(log)) + _m4_empty(msg)
 
         perception_out = None
         if want_perception:

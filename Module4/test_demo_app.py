@@ -57,3 +57,23 @@ def test_try_swap_draws_a_board(demo, all_run):
         pytest.skip("image2 got a 'keep' verdict: nothing to try")
     png, text = demo.try_swap(all_run["m4_state"], labels[0])
     assert os.path.exists(png) and "Harmony" in text
+
+
+def test_animal_photo_stops_with_a_message(demo, monkeypatch):
+    stop = {"status": "animal_no_person", "message": "No person found: this looks like a dog.",
+            "num_garments": 0, "num_embeddings": 0, "elapsed_seconds": 0.1}
+    rendered = []
+    monkeypatch.setattr(demo, "_pipeline", (lambda **kw: stop, lambda *a: rendered.append(a)))
+    out = dict(zip(demo.OUTPUT_NAMES, demo.analyze(PHOTO, demo.ALL, "auto", *demo.DEFAULT_OPTIONS)))
+    assert "this looks like a dog" in out["log"]
+    assert out["perception"] is None and out["harmony"] is None and out["trend"] is None
+    assert out["m4_state"] is None and rendered == []
+
+
+def test_photo_with_no_garments_stops_with_a_message(demo, monkeypatch):
+    empty = {"status": "person_with_animal", "message": "", "num_garments": 0, "num_embeddings": 0,
+             "elapsed_seconds": 0.1}
+    monkeypatch.setattr(demo, "_pipeline", (lambda **kw: empty, lambda *a: None))
+    out = dict(zip(demo.OUTPUT_NAMES, demo.analyze(PHOTO, demo.ALL, "auto", *demo.DEFAULT_OPTIONS)))
+    assert "No garments found" in out["log"] and "Traceback" not in out["log"]
+    assert out["harmony"] is None and out["m4_state"] is None
