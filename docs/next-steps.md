@@ -20,6 +20,20 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
   is now out of date: suggestions come from H&M (55,862), street stores only score and evaluate.
 - New since Review 2: crop quality gate, Indian wear out of demo suggestions, H&M catalogue + domain
   check + CORAL alignment, refresh cap, style-invariant roadmap.
+- [x] **Report Chapter 7 (System Design) drafted 2026-11-23** from the code:
+  `docs/report/chapter7-system-design.md`. The brief (`capstone sem7 report.docx`) lists only
+  Fashion144k + Pinterest; the chapter records the third store (H&M, demo-only). Out-of-date docs
+  found: root README names `per_category_trend_model.pkl` (the app loads `..._store.pkl`);
+  `module4-design.md` §1 says Pinterest ~144k garments and a two-store catalogue (store has 154,663
+  rows, demo uses H&M); `Module1/run_pipeline.py` docstring describes the YOLO-World/U2Net path and
+  `real_image_pipeline/` paths (default is SegFormer). Chapters 5–6 not in the repo, so not cross-checked.
+- [x] **Report Chapter 8 (Results and Discussion) drafted 2026-11-23:** `docs/report/results.md`,
+  from the module READMEs, this file and the result files in `Module4/cache/` (eval reports, human
+  study, catalogue QA). Chapter number assumed to follow Chapter 7. Test run that day: Module 1 23,
+  Module 3 7, Module 4 130 (incl. `real`), all pass. Not in the chapter: the "M2 AUC 0.7469 at
+  Review 2" figure above (no source found in the repo); Kit 2 reported as not done.
+  Slide content for the template's Results and Discussion section (9 slides, R1–R9, with visuals
+  and speaker notes): `docs/report/review3-results-slides.md`.
 - [x] **Review 1 suggestion: non-human subjects (done 2026-11-22).** 16 Unsplash photos in
   `samples/nonhuman/` (13 dressed pets, 1 undressed dog, 2 person + pet; sources in `manifest.csv`).
   - Before: every photo produced an outfit. The undressed golden retriever's face became a
@@ -58,6 +72,21 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
     score swap verdicts). On `image2.jpg` all three refresh picks are now shoes, since no other
     piece has a trendier option with a positive gain: the known shoe lean.
 - Not for this review (future work): style-invariant encoder, GNN fine-tune, human study.
+- [x] **Module 1 accuracy, weak labels (2026-11-22).** `Module1/eval_weak_labels.py`: the poster's
+  garment words in each Fashion144k file name as weak labels, recall only (a lower bound: titles
+  name hidden or out-of-frame items and omit others). All 144,169 photos (outputs reused, nothing
+  re-segmented); results in `Fashion144k_v1/eval_weak_labels/`. Group recall: upper 97.6% (n 68,774),
+  lower 94.8% (47,203), bag 83.8%, hat 79.5%, dress 76.6%, shoe 75.0% (48,042), scarf 62.5%, belt
+  19.4%, sunglasses 5.6% (4,861). Exact types: skirt 86%, jacket 74%, pants 75%, sweater 48%,
+  leggings 42%, shirt/blouse 30%, t-shirt 22%, top 14%, **shorts 4.4%** (9,571).
+  - Shorts are almost always called pants (5,969 of 9,149 misses); Module 1 outputs only 844 shorts
+    of 480,079 Fashion144k garments. CLIP zero-shot subtype weakness; same swap group, so Module 4
+    still searches the right replacements.
+  - Upper-body subtype is weak because one region per body part and CLIP leans to "jacket"
+    (shirt/blouse titles: 7,751 misses read as jacket).
+  - Small accessories at 400 px: belts 19%, sunglasses 6% (often on the head, read as hair).
+  - Tights / stockings (no type) come out as pants or leggings in 87% of 3,855 photos.
+  - Tests: 4 in `Module1/test_eval_weak_labels.py`. Full run reads 144k metadata files (~10 min).
 - **Team testing kits (2026-11-22), `docs/review3-kits.md`.** Four human tasks, owners to fill in,
   results due 23 Nov 18:00:
   1. Human study pilot: `Module4/human_study.py build` made 40 blind A/B questions from 20 street
@@ -74,10 +103,95 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
      (480 items, 16 sheets) with a `marks.csv` to fill; `score` gives defect rates. Visible already:
      studio background left inside closed loops (chain belt).
   Tests: human study 3, photo batch 3, catalogue QA 2, outfit board +1; Module 4 unit tests 88 pass.
+- [x] **Kit 1 result: human study pilot (2026-11-23).** 26 raters (Google Form, 22–23 Nov), 40
+  questions, 1,040 answers, 59 "Can't decide". Swapped outfit preferred over the original:
+  **Module 4 37.4%, random 37.8%, lift −0.4 points** (95% CI over raters −5.3 to +4.8; over raters
+  and outfits −10.9 to +9.6). **No measurable lift: people did not prefer Module 4's swap to a
+  random allowed swap.** Data checks clean: no A/B position bias (A chosen 53.5%), no rater
+  dominates. Breakdown (10 outfits each, not significant): Pinterest lift +9.3 (CI −2 to +20),
+  Fashion144k −10.4 (CI −26 to +3); Module 4 beats random on 9 of 20 outfits. Worst: pants → shorts
+  (9% prefer). Model harmony gain does not track human preference (Spearman 0.10 over the 40
+  questions; Module 4's ΔH z 1.3–4.5 vs random −1.4 to +1.4). Originals preferred 62% in both
+  conditions; this mixes "the outfit was fine" with "street photo plus studio cut-out looks odd", so
+  it does not by itself say the swap verdict is wrong, but the lift (which cancels the photo style)
+  is ~0. For the slide: a negative pilot, reported as such; it supports the style-invariant encoder
+  and GNN-on-modern-data roadmap. Responses: `Human Study – Outfit Preference Survey.csv` (project
+  root, not in git); score in `Module4/cache/human_study/result.json`. The form export has one extra
+  unnamed column (3 non-empty cells: 3, 5, 5), ignored by the scorer.
+- [x] **Kit 3 result: usability test (2026-11-23), run by Claude** in headless Chromium against
+  `demo.py --advanced`; full checklist and bug log in `docs/kit3-usability-results.md`, screenshots
+  in `Module4/cache/usability/`. Cold start: server 4 s, first run 27.1 s, then 3.9 s (All); single
+  modules 0.7–1.8 s; slider re-rank < 1 s. 14 issues: 0 blocker, 4 major, 6 minor, 4 cosmetic.
+  Majors: (1) no "no person" stop for non-animal photos: a landscape gets garments cut from snow and
+  a verdict; (2) the same photo scores harmony 77 or 79 on reruns (follows Module 1 time, ~1.4 s →
+  77, ~0.6 s → 79): root cause not yet found; (3) a 44 MP photo runs out of GPU memory in
+  SegFormer's upsampling (12 and 24 MP pass in 8–13 s): downscale on upload; (4) Device `cpu` after
+  a GPU run crashes. Odd inputs handled well 5 of 10. First-time understanding still needs a real
+  first-time user.
+  Bugs to fix (numbers as in the bug log):
+  - [ ] B1 (major) No-person photos are analysed: extend the person check to stop any photo without
+        a person (landscape, flat-lay, product page), not only animals.
+  - [ ] B2 (major) Harmony 77 vs 79 for the same photo on reruns: find why Module 1 takes two paths
+        (~1.4 s vs ~0.6 s) and gives different garments/embeddings; then make it deterministic.
+        Lead (2026-11-23, not yet confirmed): the demo reuses one folder
+        (`Fashion144k_v1/demo_out/demo_live`) and nothing clears it between photos; it holds 15
+        garment PNGs from earlier photos (scarf from 19 Nov, shorts 20 Nov, sweater 22 Nov), and
+        `extract_folder_embeddings` embeds every PNG in the folder (hence "15 embeddings" for a
+        4-garment photo). Next: check whether the scorers read these stale files, then clear the
+        folder at the start of each run. Fixes deferred to after Review 3 (owner decision).
+  - [ ] B3 (major) 44 MP photo → CUDA out of memory in SegFormer's upsampling: downscale on upload
+        (long side ~1600 px), which also cuts 12–24 MP runs from 8–13 s; show a friendly message
+        on any out-of-memory error instead of the PyTorch text.
+  - [ ] B4 (major) Device `cpu` after a GPU run crashes (tensors on two devices): ignore the change
+        after the first run, or disable the radio once models are loaded.
+  - [ ] B5 (minor) Unreadable image (text renamed `.jpg`) gives a bare "Error": catch it and say
+        "could not read this image". Check iPhone HEIC with the Kit 2 photos.
+  - [ ] B6 (minor) Group photo analysed silently: warn when more than one person is found.
+  - [ ] B7 (minor) Tiny photo (110 px) analysed without warning (harmony 38 vs 77): warn below a
+        minimum size.
+  - [ ] B8 (minor) "Try this swap" options identical ("shoe (same type) (hm)"): add the item name or
+        the harmony/trend change to each label.
+  - [ ] B9 (minor) Same type, trend floor and rule show no visible change on the example photo:
+        say "no change for this outfit" or explain each option.
+  - [ ] B10 (minor) Per-piece table jargon (selection score, best ΔH (σ), best ΔT (σ), clears) and
+        "drops to 70/100 if one garment is swapped": plain-word headers and a one-line note;
+        say that harmony is a percentile against real outfits.
+  - [ ] B11 (cosmetic) Figure text in Modules 1–3 ~7 px: larger fonts for the projector.
+  - [ ] B12 (cosmetic) Suggestion captions cut off ("harmony 7…").
+  - [ ] B13 (cosmetic) Sunglasses colour "red" (dark brown); shoes grouped as "accessory".
+  - [ ] B14 (cosmetic) Dog example thumbnail letterboxed into a thin strip.
+- [x] **Kit 4 result: catalogue QA (2026-11-23).** 480 items (30 per type × 16), **24 flagged = 5.0%**:
+  wrong_type 13, unreadable 6, other 4, background 1. By type: sunglasses 13% (3 frames mostly
+  erased, 1 leftover background), scarf 10% (ponchos/wraps, a beanie on a scarf), 6.7% for dress,
+  hat (headbands), pants (jumpsuit, corset belt), shirt/blouse (tunic dresses), skirt, t-shirt,
+  top; bag, belt, jacket, shoe 0%. Main failure is H&M's own category labels (wrong_type), not the
+  cut-outs; thin-framed sunglasses are where the background removal breaks. **Lower bound:**
+  belt #2 (chain belt, studio background inside the loop, the defect noted at build time) was not
+  flagged. Handed back as `kit4results.xlsx` (Excel turned item ids into floats); marks re-joined to
+  the original rows by type + cell (all 480 match) in `Module4/cache/catalogue_qa/marks_filled.csv`,
+  score in `result.json` there.
 - Demo on review day (owner decision 2026-11-22): runs on this machine, reached remotely through a
   Gradio share link. To do with the frontend overhaul: `--share` and `--auth` flags in `demo.py`
   (a share link is public, so it needs a password); pre-screen the team's demo photos for verdicts;
   warm start; an offline run (`HF_HUB_OFFLINE=1`); a backup screen recording.
+- Demo front-end polish for Review 3 (2026-11-23, `demo.py`): rose/slate theme and CSS (launch
+  arguments, as Gradio 6 requires); results in tabs (1 · Perception, 2 · Harmony, 3 · Trend,
+  4 · Recommendation, Log); a single-module run opens its own tab, All stays put; a status line
+  above the tabs shows "Done in Ns", a stop message (e.g. the person check on an animal photo) or
+  an error from any tab; Run sits right under the module choice; three examples (image2, image.png
+  and a dog in a sweater for the person check); the device and Module 4 options are hidden unless
+  `--advanced` (they keep the calibrated defaults). Done from the review-day list: `--share` (refuses
+  to start without a password), `--auth user:password` or `DEMO_AUTH`, `--port`. Still to do: the
+  photo pre-screen, warm start, offline run, screen recording.
+  Checked: the full chain through the running server with `gradio_client` (image2 → "Already strong"
+  verdict and "✅ Done"; dog → "⚠️ No person found…"); light and dark screenshots. A click-through in a
+  browser was not done here (Chrome automation fails on this machine), so test it by hand once.
+  Tests: `Module4/test_demo_ui.py` (8, no models); demo real tests 18 pass; Module 4 unit tests 96 pass.
+  Follow-up (same day, owner's call): big centred heading with the project name "AI-Powered Personal
+  Stylist" (also the browser tab title); warnings in an orange rounded box (`status_html`, errors and
+  "Done" stay plain); examples cut to two (image2 and the dog; `image.png` dropped). UI tests 9 pass.
+  The module choice is now a full-width bar under "What each module does"; each option is sized to
+  its text, centred in the row, and the row wraps on narrow windows.
 
 ---
 
