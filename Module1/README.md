@@ -130,10 +130,41 @@ The easiest way to see it is the repo-root web demo: `python demo.py`, then choo
 | `render_perception_demo.py` | Slide figure: photo → garments + attributes |
 | `test_pipeline.py` | Checks (512-D unit-length embeddings, colour ignores background, …) |
 | `test_subject_check.py` | Person / animal rules, pet masking, pipeline stop; real photos when present |
+| `eval_weak_labels.py` | Recall per garment type on Fashion144k, file-name words as weak labels |
 | `yolo_detect_and_crop.py` | Older YOLO-based detector, kept for reference (not the default) |
 
 **Note:** `Module3/` keeps identical copies of `fashion_segmenter.py`, `attribute_analyzer.py` and
 `clip_extract_embeddings.py`. `Module3/test_module1_sync.py` fails if they drift, so change both together.
+
+## Accuracy (weak labels)
+No labelled test set exists for Fashion144k, so `eval_weak_labels.py` uses the poster's garment words
+in each file name as weak labels: recall = share of photos naming an item where Module 1 found it.
+A lower bound (titles name items out of frame or hidden), recall only (titles omit items). All
+144,169 photos, 2026-11-22; n = photos whose title names the item:
+
+| Group | n | Recall | Exact type (where it differs) |
+|---|---|---|---|
+| Upper body | 68,774 | **97.6%** | jacket 74%, sweater 48%, shirt/blouse 30%, t-shirt 22%, top 14% |
+| Lower body | 47,203 | **94.8%** | skirt 86%, pants 75%, leggings 42%, **shorts 4%** |
+| Bag | 23,714 | 83.8% | |
+| Hat | 10,823 | 79.5% | |
+| Dress | 24,695 | 76.6% | |
+| Shoes | 48,042 | 75.0% | |
+| Scarf | 3,304 | 62.5% | |
+| Belt | 3,127 | 19.4% | |
+| Sunglasses | 4,861 | 5.6% | |
+
+95% Wilson intervals are within ±1 point for every group except belt (±1.4) and scarf (±1.7).
+Reading it:
+- **Garment regions are found reliably** (upper 98%, lower 95%). The upper-body subtype is weaker:
+  one region per body part means a title naming a jacket and a shirt can only match one of them, and
+  the CLIP subtype often says jacket (shirt/blouse titles: 7,751 of the misses are "jacket").
+- **Shorts are almost always called pants** (5,969 of 9,149 misses): Module 1 outputs 844 shorts in
+  480,079 garments. A known CLIP zero-shot weakness; swap groups treat them alike, so Module 4 still
+  offers the right group.
+- **Small accessories are often missed** at Fashion144k's 400-px resolution: belts 19%, sunglasses 6%
+  (often pushed up on the head, which SegFormer leaves as hair).
+- Tights / stockings (no Module 1 type) come out as pants or leggings in 87% of 3,855 photos.
 
 ## Known limits
 - One garment per body region, so layering isn't represented.
