@@ -15,7 +15,7 @@ skipped, so it can be re-run.
 Usage (from the repo root):
     python PinterestData/build_resized.py
 Then run store mode on it:
-    python Module3/pinterest_garment_segmentation.py --mode store \
+    python Module3/scripts/pinterest_garment_segmentation.py --mode store \
         --metadata_csv PinterestData/pinterest_data/metadata_98k.csv --output_dir PinterestData/store
 """
 

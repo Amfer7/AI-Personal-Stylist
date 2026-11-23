@@ -3,7 +3,7 @@
 A **Gradio** web app at the repo root runs every finished module on one photo:
 
 ```bash
-pip install -r Module1/requirements.txt   # includes gradio
+pip install -r Module1/config/requirements.txt   # includes gradio
 python demo.py                            # opens in your browser
 ```
 
@@ -23,7 +23,7 @@ The app writes these figures into this folder. **They're generated locally and n
 |---|---|---|
 | `perception_demo.png` | 1 | photo → segmented garments + attributes |
 | `harmoniousness_demo.png` | 2 | photo → harmony score (percentile vs real outfits) |
-| `compatibility_demo.png` | 2 | real outfits beat corrupted ones on 91.2% of 500 test outfits (from `Module2/demo_score.py`) |
+| `compatibility_demo.png` | 2 | real outfits beat corrupted ones on 91.2% of 500 test outfits (from `Module2/src/demo_score.py`) |
 | `trend_demo.png` | 3 | per-garment trend scores |
 
 Notes:

@@ -25,7 +25,7 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
   Fashion144k + Pinterest; the chapter records the third store (H&M, demo-only). Out-of-date docs
   found: root README names `per_category_trend_model.pkl` (the app loads `..._store.pkl`);
   `module4-design.md` §1 says Pinterest ~144k garments and a two-store catalogue (store has 154,663
-  rows, demo uses H&M); `Module1/run_pipeline.py` docstring describes the YOLO-World/U2Net path and
+  rows, demo uses H&M); `Module1/src/run_pipeline.py` docstring describes the YOLO-World/U2Net path and
   `real_image_pipeline/` paths (default is SegFormer). Chapters 5–6 not in the repo, so not cross-checked.
 - [x] **Report Chapter 8 (Results and Discussion) drafted 2026-11-23:** `docs/report/results.md`,
   from the module READMEs, this file and the result files in `Module4/cache/` (eval reports, human
@@ -42,7 +42,7 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
     Pinterest photos < 0.3, Fashion144k minimum 0.34): rejected. SegFormer body-part pixel share
     overlaps: rejected. COCO YOLO11m-seg "animal and no person": all 13 animal-only photos, 0 of 600
     real photos (300 Fashion144k, 300 Pinterest): adopted.
-  - `Module1/subject_check.py` in `run_single_image()` (live path only, stores unchanged): animal
+  - `Module1/src/subject_check.py` in `run_single_image()` (live path only, stores unchanged): animal
     and no person → stop with "No person found, only an animal"; person + animal → animal-only
     pixels (grown 1% of the longer side) excluded before garment parsing. CPU (~0.3 s), since the
     installed torchvision is a CPU build and its NMS rejects CUDA tensors.
@@ -70,7 +70,7 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
     score swap verdicts). On `image2.jpg` all three refresh picks are now shoes, since no other
     piece has a trendier option with a positive gain: the known shoe lean.
 - Not for this review (future work): style-invariant encoder, GNN fine-tune, human study.
-- [x] **Module 1 accuracy, weak labels (2026-11-22).** `Module1/eval_weak_labels.py`: the poster's
+- [x] **Module 1 accuracy, weak labels (2026-11-22).** `Module1/scripts/eval_weak_labels.py`: the poster's
   garment words in each Fashion144k file name as weak labels, recall only (a lower bound: titles
   name hidden or out-of-frame items and omit others). All 144,169 photos (outputs reused, nothing
   re-segmented); results in `Fashion144k_v1/eval_weak_labels/`. Group recall: upper 97.6% (n 68,774),
@@ -84,20 +84,20 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
     (shirt/blouse titles: 7,751 misses read as jacket).
   - Small accessories at 400 px: belts 19%, sunglasses 6% (often on the head, read as hair).
   - Tights / stockings (no type) come out as pants or leggings in 87% of 3,855 photos.
-  - Tests: 4 in `Module1/test_eval_weak_labels.py`. Full run reads 144k metadata files (~10 min).
+  - Tests: 4 in `Module1/tests/test_eval_weak_labels.py`. Full run reads 144k metadata files (~10 min).
 - **Team testing kits (2026-11-22), `docs/review3-kits.md`.** Four human tasks, owners to fill in,
   results due 23 Nov 18:00:
-  1. Human study pilot: `Module4/human_study.py build` made 40 blind A/B questions from 20 street
+  1. Human study pilot: `Module4/scripts/human_study.py build` made 40 blind A/B questions from 20 street
      test outfits with a "swap" verdict (10 Fashion144k, 10 Pinterest): original vs Module 4's top
      swap, and original vs a random replacement from the same candidate list (same H&M catalogue, so
      a liking for studio photos cancels out). First build: tiny street crops next to full-size H&M
      cut-outs gave the replacement away, and some gate-passing crops were unreadable; fixed with
      `outfit_board(upscale=True)` and a 4,000-px minimum garment area (the slide figures' bar). With
      that bar the swaps are mostly clothing (shoe 1 of 20; the first build had 8 of 20 shoes).
-  2. Phone-photo set: `Module4/photo_batch.py --photos <folder>` (results.csv, summary, overlay
+  2. Phone-photo set: `Module4/scripts/photo_batch.py --photos <folder>` (results.csv, summary, overlay
      sheet); checked on `samples/nonhuman/` (same results as above).
   3. Usability checklist and bug log for the demo (owner: the user, 2026-11-22).
-  4. Catalogue QA: `Module4/catalogue_qa.py sheets` drew 30 random suggestable H&M items per type
+  4. Catalogue QA: `Module4/scripts/catalogue_qa.py sheets` drew 30 random suggestable H&M items per type
      (480 items, 16 sheets) with a `marks.csv` to fill; `score` gives defect rates. Visible already:
      studio background left inside closed loops (chain belt).
   Tests: human study 3, photo batch 3, catalogue QA 2, outfit board +1; Module 4 unit tests 88 pass.
@@ -184,7 +184,7 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
   Checked: the full chain through the running server with `gradio_client` (image2 → "Already strong"
   verdict and "✅ Done"; dog → "⚠️ No person found…"); light and dark screenshots. A click-through in a
   browser was not done here (Chrome automation fails on this machine), so test it by hand once.
-  Tests: `Module4/test_demo_ui.py` (8, no models); demo real tests 18 pass; Module 4 unit tests 96 pass.
+  Tests: `Module4/tests/test_demo_ui.py` (8, no models); demo real tests 18 pass; Module 4 unit tests 96 pass.
   Follow-up (same day, owner's call): big centred heading with the project name "AI-Powered Personal
   Stylist" (also the browser tab title); warnings in an orange rounded box (`status_html`, errors and
   "Done" stay plain); examples cut to two (image2 and the dog; `image.png` dropped). UI tests 9 pass.
@@ -202,10 +202,10 @@ Design is complete: see [`module4-design.md`](module4-design.md) (plain language
 224×224 copies (2026-10-09). Full run done 2026-10-10 (steps 1–4 below; step 5 wired up, full
 evaluation pending a calibration decision). Pilot numbers (224×224, 2,000 photos) were AUC 0.731 vs
 0.816 and backtest weight 0.6; the full run confirmed both.
-- [x] Store mode in `Module3/pinterest_garment_segmentation.py`, the same Module 1 path as Fashion144k
+- [x] Store mode in `Module3/scripts/pinterest_garment_segmentation.py`, the same Module 1 path as Fashion144k
       (shared `segment_photos()` loop); feature store with areas in the 98,304-px frame; seeded 60/10/30
       split with identical files kept together; parity guard against Fashion144k store rows.
-- [x] AUC gate (`Module2/auc_gate.py`) and D11 backtest (`Module3/forward_share_backtest.py`).
+- [x] AUC gate (`Module2/scripts/auc_gate.py`) and D11 backtest (`Module3/scripts/forward_share_backtest.py`).
 - [x] Module 4 builds and recommends from both stores (settings entry in the runbook below).
 - [x] **Full-resolution dataset.** The raw scrape in `PinterestData/pinterest_data/raw/` (43 GB) holds
       the original of every pin. `PinterestData/build_fullres_metadata.py` writes
@@ -261,7 +261,7 @@ evaluation pending a calibration decision). Pilot numbers (224×224, 2,000 photo
       - The higher τ trades detection for fewer false alarms (about 1 in 6 real outfits now gets
         "swap", down from 1 in 5).
 - [ ] Open: re-check `t_dup` (0.99) on the mixed pool with the visual sheets
-      (`python Module4/calibrate_dup.py`, needs an owner look), as the implementation plan's Pinterest
+      (`python Module4/scripts/calibrate_dup.py`, needs an owner look), as the implementation plan's Pinterest
       section asks. The recalibration above re-tuned w_t, τ, ε and the rule only.
 - [x] **Catalogue crop quality** (found 2026-10-10 while rendering `demos/recommendation_demo.png`;
       fixed 2026-11-19 with a demo-pool crop gate, see the end of this item and
@@ -283,11 +283,11 @@ evaluation pending a calibration decision). Pilot numbers (224×224, 2,000 photo
         - One global threshold would empty whole types (shoes pass 3/294 and 10/196, belts and
           sunglasses 0) because they are small, and shoes come as pairs (two pieces). Any filter has to
           be per type.
-      - Fix 2026-11-19: `Module4/crop_quality.py` measures all 634,742 crops (six shape metrics from the
+      - Fix 2026-11-19: `Module4/src/crop_quality.py` measures all 634,742 crops (six shape metrics from the
         alpha mask, two CLIP scores from the stored embeddings: own-group probability and "text"
         probability) into `cache/crop_metrics.npz`; `crop_gate` in `m4_settings.json` sets per-type bars,
         applied when the pool loads (no rebuild to retune). Bars set from contact sheets
-        (`Module4/calibrate_crops.py`), one row per rejection reason:
+        (`Module4/scripts/calibrate_crops.py`), one row per rejection reason:
         - Holes check off for shoes (strappy sandals, touching boots); label check off for accessories
           (CLIP reads dark boots, side-on bags, knit scarves as other groups; with one prompt per group it
           also rejected cardigans, so groups now have several prompts each).
@@ -311,17 +311,17 @@ evaluation pending a calibration decision). Pilot numbers (224×224, 2,000 photo
       into a Fashion144k outfit, or the reverse) are untested apart from the M4 evaluation.
 
 Runbook (repo root; `<store>` = `PinterestData/store`):
-1. `python Module3/pinterest_garment_segmentation.py --mode store --metadata_csv <metadata.csv> --output_dir <store>`
+1. `python Module3/scripts/pinterest_garment_segmentation.py --mode store --metadata_csv <metadata.csv> --output_dir <store>`
    (~10 photos/s on the 224×224 copies; full resolution will be slower; resumable).
-2. `python Module2/build_feature_store.py --output_root <store>/outputs --store_dir <store>/feature_store --photo_sizes <store>/photos.csv --area_frame_px 98304`
-3. `python Module2/auc_gate.py --checkpoint Fashion144k_v1/ck_attr_subset_s42/clip_outfit_gnn_best.pt --fashion_store Fashion144k_v1/feature_store --fashion_split Fashion144k_v1/split.mat --pinterest_store <store>/feature_store --pinterest_split <store>/split.json`.
+2. `python Module2/scripts/build_feature_store.py --output_root <store>/outputs --store_dir <store>/feature_store --photo_sizes <store>/photos.csv --area_frame_px 98304`
+3. `python Module2/scripts/auc_gate.py --checkpoint Fashion144k_v1/ck_attr_subset_s42/clip_outfit_gnn_best.pt --fashion_store Fashion144k_v1/feature_store --fashion_split Fashion144k_v1/split.mat --pinterest_store <store>/feature_store --pinterest_split <store>/split.json`.
    If it fails, build the fine-tune path (merge both stores for `03_train_gnn.py`, warm start, adopt
    only if Pinterest AUC rises and Fashion144k drops by no more than 0.01).
 4. Refit M3 on `<store>/garment_manifest.csv` + `garment_embeddings.npy`, re-run the stability test, then
-   `python Module3/forward_share_backtest.py --manifest_csv ... --embeddings ...` and freeze the D11 weight.
+   `python Module3/scripts/forward_share_backtest.py --manifest_csv ... --embeddings ...` and freeze the D11 weight.
 5. Add `{"name": "pinterest", "store_dir": "PinterestData/store/feature_store", "output_root": "PinterestData/store/outputs", "split": "PinterestData/store/split.json"}`
-   to `Module4/m4_settings.json` → `stores`; point `trend_model` at the refit model;
-   `python Module4/build_cache.py`; re-run the evaluation for both sources.
+   to `Module4/config/m4_settings.json` → `stores`; point `trend_model` at the refit model;
+   `python Module4/scripts/build_cache.py`; re-run the evaluation for both sources.
 
 **M4 core on Fashion144k (build step 2): done** (2026-10-09). See [`Module4/README.md`](../Module4/README.md).
 - [x] Candidate pool, swap groups + co-occurrence filter, dense GNN scorer, harmony reference,
@@ -329,7 +329,7 @@ Runbook (repo root; `<store>` = `PinterestData/store`):
 - [x] Performance gate: `image2.jpg` vs the full demo pool, **0.16 s warm, 1.92 GiB peak** (target ≤ 5 s, ≤ 6 GB).
 - [x] Dedupe rebuilt at outfit level (reposts), after the CLIP-only rule turned out to merge distinct tiny crops.
 
-**Evaluation (build step 3): done** (2026-10-09). `Module4/eval_recovery.py`, spec §6.
+**Evaluation (build step 3): done** (2026-10-09). `Module4/src/eval_recovery.py`, spec §6.
 - [x] Dev / report sets (2,000 + 2,000), group-consistent corruption, original recovery, three baselines.
 - [x] Calibrated and frozen: rule `slot_percentile`, w_t = 0.2, τ = 0.333, ε = 0.2σ.
 - [x] Report set run once: hit rate **71.8%** (chance 31.4%, best baseline 38.6%); original in the
@@ -380,20 +380,20 @@ Runbook (repo root; `<store>` = `PinterestData/store`):
         u2net is nearly as good at 0.18 s; isnet-general-use failed on a white blouse and print trousers.
         u2net is used for the domain check; pick the model for the full catalogue after it (BiRefNet if
         onnxruntime-gpu works).
-      - `Module4/hm_catalogue.py`: H&M type → Module 4 type map, adult filter, gender, cut-out, then a
+      - `Module4/src/hm_catalogue.py`: H&M type → Module 4 type map, adult filter, gender, cut-out, then a
         Module 1-style folder per article (PNG + CLIP `.npy` + Module 1 attributes), so Module 2's
         `build_feature_store.py` builds the store. A product photo has no body scale, so `pixel_count`
         is the median area of that type in the existing stores. Resumable (skips finished articles).
-      - `Module4/hm_domain_check.py` (written, **not yet run**): type agreement (CLIP label_p), embedding
+      - `Module4/scripts/hm_domain_check.py` (written, **not yet run**): type agreement (CLIP label_p), embedding
         gap (nearest same-type store garment, H&M-vs-store linear classifier), trend-cluster coverage,
         and the main test, GNN transfer: for test outfits of both catalogues, the candidate nearest to
         the worn piece is a stand-in for the original; compare its GNN rank among H&M candidates with
         its rank among an equal-sized set of store candidates.
       - Stopped at: the 150-per-type sample was 2,294 of ~2,400 items into `H&M Dataset/check_store`.
         Resume with:
-        1. `python Module4/hm_catalogue.py --out "H&M Dataset/check_store" --per_type 150` (finishes the rest)
+        1. `python Module4/src/hm_catalogue.py --out "H&M Dataset/check_store" --per_type 150` (finishes the rest)
         2. `cd Module2 && python build_feature_store.py --output_root "../H&M Dataset/check_store/outputs" --store_dir "../H&M Dataset/check_store/feature_store"`
-        3. `python Module4/hm_domain_check.py --store "H&M Dataset/check_store" --n 1000`
+        3. `python Module4/scripts/hm_domain_check.py --store "H&M Dataset/check_store" --n 1000`
            (expect first-run fixes; writes `domain_check.json` and `gnn_transfer.csv` there)
       - **Sample finished, store built, check run (2026-11-20).** One fix: H&M article ids start with a
         zero and the feature store keys outfits by integer, so folders are now named
@@ -546,7 +546,7 @@ From [`Module2/README.md`](../Module2/README.md) ("Raising AUC above ~0.80"), ch
 - [x] Root `demo.py` covers M1 + M2 + M3.
 - [x] Module 4 in `demo.py` (D10, 2026-10-10): verdict, suggestion gallery, also-worth-improving,
       per-piece table, live trend-weight slider (no GNN call, tested), advanced options, "Try this
-      swap" board (`Module4/outfit_board.py`, shared with the human study), M2 and M4 on one GNN and
+      swap" board (`Module4/src/outfit_board.py`, shared with the human study), M2 and M4 on one GNN and
       one harmony reference (tested equal), `--vram-gb`. Slide figures:
       `demos/recommendation_tradeoff.png`, `demos/recommendation_demo.png`. Slide examples filtered
       for readable crops (owner decision). Manual browser check still to do.
@@ -560,4 +560,15 @@ From [`Module2/README.md`](../Module2/README.md) ("Raising AUC above ~0.80"), ch
 - [x] One root README linking to per-module READMEs; docs in `docs/`.
 - [x] **No images in git.** `.gitignore` blocks all image formats; figures and sample photos stay local.
 - [x] Images removed from git history (2026-10-07).
-- [ ] Before any M3 re-run: `Module3/test_module1_sync.py` and `Module3/test_embedding_parity.py` must pass.
+- [x] **Module folders restructured (2026-11-23, branch `restructure-modules`, owner request).** Each
+  module now has `src/` (code other modules or the demo import; still runnable), `scripts/`
+  (command-line tools nothing imports), `tests/` and `config/` (Module 4's `m4_settings.json`,
+  requirements). Rule used: a file imported by any non-test code goes in `src/`. Trained models,
+  weights and caches stay at the module root, so no data path changed. Paths in code, docs and
+  this file were rewritten to the new layout. Notable moves: `run_recommend.py`, `eval_recovery.py`,
+  `hm_catalogue.py` in `Module4/src/` (imported elsewhere); Module 2's `01_`–`03_` and
+  `demo_score.py` in `Module2/src/`. Verified before and after: M1 23, M3 7, M4 97 quick + 33 `real`,
+  all pass (M1's now also from the repo root: `python -m pytest Module1`); 58 of 59 src/scripts files load (the exception, `Module3/scripts/gradio_demo.py`, needs
+  a `pinterest_trend_model.pkl` that does not exist, as before); a full demo run on `image2.jpg` gives
+  the same harmony 77, verdict and 41,866 what-if outfits.
+- [ ] Before any M3 re-run: `Module3/tests/test_module1_sync.py` and `Module3/tests/test_embedding_parity.py` must pass.

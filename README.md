@@ -27,7 +27,7 @@ together**, **how on-trend each piece is**, and **which one piece to change, and
 ## Try it
 
 ```bash
-pip install -r Module1/requirements.txt
+pip install -r Module1/config/requirements.txt
 python demo.py
 ```
 A web app opens in your browser. Upload an outfit photo, choose a module (or **All**), and click **Run**.
@@ -49,7 +49,12 @@ The demo needs the trained models and data locally (see **Data** below). The fir
 
 ```
 demo.py              web demo (Gradio) for all modules
-Module1/ … Module4/  one folder per module, each with its own README
+Module1/ … Module4/  one folder per module, each with its own README and the same layout:
+    src/             library code (imported by other modules and the demo; still runnable)
+    scripts/         command-line tools nothing else imports (cache builds, evaluations, kits)
+    tests/           pytest suites (run from the repo root: python -m pytest Module4)
+    config/          settings and requirements (Module4/config/m4_settings.json, requirements.txt)
+                     trained models, weights and caches stay at the module root (not in git)
 PinterestData/       Pinterest scraper scripts + dataset notes (the data itself is not in git)
 docs/                project docs: GNN training, Module 4 design, next steps
 demos/               where the demo writes its figures (images are not in git)

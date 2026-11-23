@@ -16,7 +16,7 @@ metadata order); the rows keep their own date and query for the trend model.
 Usage (from the repo root):
     python PinterestData/build_fullres_metadata.py
 Then run store mode on it:
-    python Module3/pinterest_garment_segmentation.py --mode store \
+    python Module3/scripts/pinterest_garment_segmentation.py --mode store \
         --metadata_csv PinterestData/pinterest_data/metadata_fullres.csv --output_dir PinterestData/store
 """
 

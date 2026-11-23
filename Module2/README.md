@@ -33,11 +33,11 @@ Fashion144k photos ──01_segment_batch──► outputs/<idx>/{metadata.json,
                                     clip_outfit_gnn_best.pt
 ```
 
-1. **Segment everything** (`01_segment_batch.py`): runs Module 1 over all photos. It's resumable,
+1. **Segment everything** (`src/01_segment_batch.py`): runs Module 1 over all photos. It's resumable,
    and a **circuit breaker** stops the run if many images fail in a row.
-2. **Cache features once** (`build_feature_store.py`): all 480,079 garments' numbers go into one
+2. **Cache features once** (`scripts/build_feature_store.py`): all 480,079 garments' numbers go into one
    **memory-mapped** file, so training never re-opens images.
-3. **Build a graph per outfit** (`02_outfit_dataset.py`). Outfits with ≥ 2 garments are kept.
+3. **Build a graph per outfit** (`src/02_outfit_dataset.py`). Outfits with ≥ 2 garments are kept.
    - **node** = one garment = 570 numbers: 512-D CLIP embedding + 32-D HSV colour histogram
      (16 hue + 8 saturation + 8 value bins, computed from the cut-out on white) + 26-D attributes
      (one-hots for silhouette 4 / pattern 6 / fabric 6 / fit 3, plus 7 scalars: formality, hue sin/cos,
@@ -45,7 +45,7 @@ Fashion144k photos ──01_segment_batch──► outputs/<idx>/{metadata.json,
    - **edge** = one directed pair of garments = 5 numbers: category-pair weight (from
      `CATEGORY_EDGE_WEIGHTS`, top↔bottom 1.0 … default 0.3), **hue separation**, **formality
      difference**, **volume contrast** (log area ratio), same-category flag.
-4. **Train the GNN** (`03_train_gnn.py`). `CLIPOutfitGNN` is a linear projection → 2 ×
+4. **Train the GNN** (`src/03_train_gnn.py`). `CLIPOutfitGNN` is a linear projection → 2 ×
    `EdgeAwareGNNLayer` → mean-pool → one score. In each layer, edges shape both the message weight
    (`softplus(gate(edge_attr))`) and its content (`x[src] + msg_edge(edge_attr)`), so this is
    **message passing**. It consumes real CLIP vectors end to end, with no vocabulary lookup.
@@ -53,7 +53,7 @@ Fashion144k photos ──01_segment_batch──► outputs/<idx>/{metadata.json,
      swapped for a same-category garment from another outfit (**negative sampling**). Each pair is
      weighted by `relvotes / 10`.
    - **Optimiser and selection:** Adam (lr 1e-4); the checkpoint with the best validation **AUC** is kept.
-5. **Score a photo** (`demo_score.py`). The raw score is a ranking number (all large negatives, so a
+5. **Score a photo** (`src/demo_score.py`). The raw score is a ranking number (all large negatives, so a
    sigmoid collapses to ~0), so it's shown as a **percentile** against real test outfits. Two modes:
    - **Aggregate:** scores many test outfits real-vs-corrupted, then prints a table, the overall win
      rate, and a figure (the "it works" slide).
@@ -98,7 +98,7 @@ checkpoint, three seeds.
 
 Module 2 started as a **Google Colab notebook**: it mounted Drive, unzipped the dataset, cloned an
 external repository for the perception code, and ran the three scripts. It's now a **local GPU
-pipeline**. `01_segment_batch.py` imports the sibling `../Module1`, and `run_all.py` replaces the
+pipeline**. `src/01_segment_batch.py` imports the sibling `../Module1`, and `scripts/run_all.py` replaces the
 notebook.
 
 Other changes along the way:
@@ -156,14 +156,14 @@ set. A higher AUC on a harder test isn't comparable to 0.80.
 Expects `Fashion144k_v1/` at the repo root (`photos/`, `photos.txt`, `split.mat`, `feat/relvotes.mat`).
 
 ```bash
-python run_all.py --stage segment                       # 1. segment (resumable, hours on GPU)
-python build_feature_store.py --output_root ../Fashion144k_v1/outputs \
+python scripts/run_all.py --stage segment                       # 1. segment (resumable, hours on GPU)
+python scripts/build_feature_store.py --output_root ../Fashion144k_v1/outputs \
                               --store_dir   ../Fashion144k_v1/feature_store   # 2. cache
-python 03_train_gnn.py --output_root ../Fashion144k_v1/outputs \
+python src/03_train_gnn.py --output_root ../Fashion144k_v1/outputs \
     --split_mat ../Fashion144k_v1/split.mat --relvotes_mat ../Fashion144k_v1/feat/relvotes.mat \
     --checkpoint_dir ../Fashion144k_v1/gnn_checkpoints --feature_store ../Fashion144k_v1/feature_store \
     --epochs 10 --batch_size 64 --num_negatives 4 --seed 42 --attr_subset          # 3. train
-python demo_score.py                                    # 4. real-vs-corrupted figure + win rate
+python src/demo_score.py                                    # 4. real-vs-corrupted figure + win rate
 ```
 Or use the repo-root web demo: `python demo.py`, then choose **Module 2**.
 
@@ -175,13 +175,13 @@ Or use the repo-root web demo: `python demo.py`, then choose **Module 2**.
 
 | File | Role |
 |---|---|
-| `01_segment_batch.py` | Bulk Module 1 over Fashion144k (resumable, circuit breaker). Its loop, `segment_photos()`, is shared with the Pinterest store mode so both stores come from one code path |
-| `02_outfit_dataset.py` | Graph building: node/edge features, colour histograms, dataset class |
-| `03_train_gnn.py` | The model (`CLIPOutfitGNN`), BPR training, AUC evaluation, variant flags |
-| `build_feature_store.py` | One-time memory-mapped feature cache. `--photo_sizes` + `--area_frame_px 98304` rescale areas for stores whose photos aren't 256×384 (Pinterest) |
-| `auc_gate.py` | Module 4 Phase 0 gate: the same real-vs-corrupted AUC on Fashion144k and Pinterest test outfits; passes if Pinterest is within 0.03 |
-| `demo_score.py` | Scores a photo as a percentile; real-vs-corrupted demo figure |
-| `run_all.py` | One-command runner (`segment` / `train` / `all`) |
+| `src/01_segment_batch.py` | Bulk Module 1 over Fashion144k (resumable, circuit breaker). Its loop, `segment_photos()`, is shared with the Pinterest store mode so both stores come from one code path |
+| `src/02_outfit_dataset.py` | Graph building: node/edge features, colour histograms, dataset class |
+| `src/03_train_gnn.py` | The model (`CLIPOutfitGNN`), BPR training, AUC evaluation, variant flags |
+| `scripts/build_feature_store.py` | One-time memory-mapped feature cache. `--photo_sizes` + `--area_frame_px 98304` rescale areas for stores whose photos aren't 256×384 (Pinterest) |
+| `scripts/auc_gate.py` | Module 4 Phase 0 gate: the same real-vs-corrupted AUC on Fashion144k and Pinterest test outfits; passes if Pinterest is within 0.03 |
+| `src/demo_score.py` | Scores a photo as a percentile; real-vs-corrupted demo figure |
+| `scripts/run_all.py` | One-command runner (`segment` / `train` / `all`) |
 
 ## Known limits
 - Scores the **whole outfit** only. Its per-garment head isn't trained, so it can't say which piece is

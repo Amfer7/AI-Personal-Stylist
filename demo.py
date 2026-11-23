@@ -17,15 +17,15 @@ so they report the same harmony % for your outfit.
 Run (from the repo root):
     pip install gradio      # one-time
     python demo.py          # opens the GUI in your browser
-    python demo.py --vram-gb 4    # lower GPU-memory cap (default 6, from Module4/m4_settings.json)
+    python demo.py --vram-gb 4    # lower GPU-memory cap (default 6, from Module4/config/m4_settings.json)
     python demo.py --advanced     # also show the device and Module 4 options (pool, rule, ...)
     python demo.py --share --auth team:password   # public link for remote viewers (needs a password;
                                                   # or set DEMO_AUTH=team:password instead of --auth)
 
 Notes:
     - Modules 2-4 need Module 1's segmentation output, so every run starts with Module 1.
-    - Module 4 needs its cache: python Module4/build_cache.py
-    - Assumes the checkpoint, feature stores and trend model named in Module4/m4_settings.json.
+    - Module 4 needs its cache: python Module4/scripts/build_cache.py
+    - Assumes the checkpoint, feature stores and trend model named in Module4/config/m4_settings.json.
 """
 
 import argparse
@@ -38,15 +38,15 @@ import importlib.util
 import gradio as gr
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MOD1 = os.path.join(HERE, "Module1")
-MOD2 = os.path.join(HERE, "Module2")
-MOD3 = os.path.join(HERE, "Module3")
-MOD4 = os.path.join(HERE, "Module4")
-# Module1/run_pipeline.py imports its siblings by bare name; make sure they resolve.
+MOD1 = os.path.join(HERE, "Module1", "src")
+MOD2 = os.path.join(HERE, "Module2", "src")
+MOD3 = os.path.join(HERE, "Module3", "src")
+MOD4 = os.path.join(HERE, "Module4", "src")
+# Module1/src/run_pipeline.py imports its siblings by bare name; make sure they resolve.
 if MOD1 not in sys.path:
     sys.path.insert(0, MOD1)
-# Module3 and Module4 are appended (not prepended) so Module1's originals win for the vendored
-# names they share; the trend pickle needs `trend_model` importable by bare name.
+# Module3/src and Module4/src are appended (not prepended) so Module1's originals win for the
+# vendored names they share; the trend pickle needs `trend_model` importable by bare name.
 for _p in (MOD3, MOD4):
     if _p not in sys.path:
         sys.path.append(_p)
@@ -276,9 +276,9 @@ def analyze(image_path, module, device, pool_mode, same_type, no_trend_drop, rul
         return (None, None, None, f"Trained checkpoint missing: {CKPT}") + _m4_empty()
     if (want_trend or want_m4) and not os.path.exists(TREND_MODEL):
         return (None, None, None, f"Trend model missing: {TREND_MODEL}\n"
-                                  "Fit it with: python Module3/fit_per_category.py") + _m4_empty()
+                                  "Fit it with: python Module3/scripts/fit_per_category.py") + _m4_empty()
     if (want_harmony or want_m4) and not os.path.exists(_reference_path()):
-        return (None, None, None, "Module 4 cache missing: run python Module4/build_cache.py") + _m4_empty()
+        return (None, None, None, "Module 4 cache missing: run python Module4/scripts/build_cache.py") + _m4_empty()
 
     os.makedirs(DEMOS, exist_ok=True)
     outfit_dir = os.path.join(DEMO_OUT, IMAGE_ID)

@@ -34,20 +34,20 @@ garments live in the same vector space.
 
 | File | What it is |
 |---|---|
-| `trend_model.py` | `TrendModel` (cluster → monthly curve → growth + recency → 0–100 score) and `PerCategoryTrendModel` (one `TrendModel` per category). Also holds the shared k rule (`k_for_category`, `N_CLUSTERS_OVERRIDES`) and `fragment_mask` |
-| `pinterest_garment_segmentation.py` | Batch-segments the Pinterest scrape into garments and embeds each crop. Resumable, append-only checkpoints, circuit breaker. `--mode lean` (default) / `--mode full` / `--mode store` (everything Module 2 and Module 4 need, in Fashion144k's layout; see **Store mode** below) |
-| `fit_per_category.py` | Fits the `PerCategoryTrendModel` from the manifest + embeddings → `per_category_trend_model.pkl` |
-| `cluster_stability_test.py` | 80/20 resampling stability per category (Adjusted Rand Index) |
-| `temporal_holdout_validation.py` | Backtests whether the growth signal predicts *forward* growth. Whole-photo (`--metadata_csv`) or per-garment (`--manifest_csv`) mode |
-| `forward_share_backtest.py` | Decision D11: which growth weight (0.6 / 0.3 / 0) best predicts a style's **forward share** (still widely seen 1/3/6 months later), over rolling cutoffs Jan–May 2026; ties go to recency-only |
-| `k_sweep.py` | Sweeps k for one category (ARI + silhouette) — how the dress k was chosen |
-| `render_trend_demo.py` | Scores a Module 1 output folder and renders the slide figure (`demos/trend_demo.png`) |
-| `gradio_demo_per_garment.py` | Standalone per-garment UI (segments → embeds → scores → weak link) |
-| `test_real_photo_per_garment.py` | CLI: score one photo |
-| `gradio_demo.py`, `synthetic_demo.py` | Original whole-photo demo / synthetic-data smoke test |
-| `fashion_segmenter.py`, `attribute_analyzer.py`, `clip_extract_embeddings.py` | Vendored from `Module1/` — **must stay identical**, enforced by `test_module1_sync.py` |
-| `test_module1_sync.py`, `test_embedding_parity.py` | Guards: vendored-file drift; lean batched embedding == `embed_image` |
-| `test_store_mode_parity.py`, `test_forward_share_backtest.py` | Guards: store mode reproduces Fashion144k's store rows (within GPU noise); backtest month windows and decision rule |
+| `src/trend_model.py` | `TrendModel` (cluster → monthly curve → growth + recency → 0–100 score) and `PerCategoryTrendModel` (one `TrendModel` per category). Also holds the shared k rule (`k_for_category`, `N_CLUSTERS_OVERRIDES`) and `fragment_mask` |
+| `scripts/pinterest_garment_segmentation.py` | Batch-segments the Pinterest scrape into garments and embeds each crop. Resumable, append-only checkpoints, circuit breaker. `--mode lean` (default) / `--mode full` / `--mode store` (everything Module 2 and Module 4 need, in Fashion144k's layout; see **Store mode** below) |
+| `scripts/fit_per_category.py` | Fits the `PerCategoryTrendModel` from the manifest + embeddings → `per_category_trend_model.pkl` |
+| `src/cluster_stability_test.py` | 80/20 resampling stability per category (Adjusted Rand Index) |
+| `scripts/temporal_holdout_validation.py` | Backtests whether the growth signal predicts *forward* growth. Whole-photo (`--metadata_csv`) or per-garment (`--manifest_csv`) mode |
+| `scripts/forward_share_backtest.py` | Decision D11: which growth weight (0.6 / 0.3 / 0) best predicts a style's **forward share** (still widely seen 1/3/6 months later), over rolling cutoffs Jan–May 2026; ties go to recency-only |
+| `scripts/k_sweep.py` | Sweeps k for one category (ARI + silhouette) — how the dress k was chosen |
+| `src/render_trend_demo.py` | Scores a Module 1 output folder and renders the slide figure (`demos/trend_demo.png`) |
+| `scripts/gradio_demo_per_garment.py` | Standalone per-garment UI (segments → embeds → scores → weak link) |
+| `tests/test_real_photo_per_garment.py` | CLI: score one photo |
+| `scripts/gradio_demo.py`, `scripts/synthetic_demo.py` | Original whole-photo demo / synthetic-data smoke test |
+| `src/fashion_segmenter.py`, `src/attribute_analyzer.py`, `src/clip_extract_embeddings.py` | Vendored from `Module1/` — **must stay identical**, enforced by `tests/test_module1_sync.py` |
+| `tests/test_module1_sync.py`, `tests/test_embedding_parity.py` | Guards: vendored-file drift; lean batched embedding == `embed_image` |
+| `tests/test_store_mode_parity.py`, `tests/test_forward_share_backtest.py` | Guards: store mode reproduces Fashion144k's store rows (within GPU noise); backtest month windows and decision rule |
 
 ## Data
 
@@ -62,34 +62,34 @@ Everything is local, in-repo (gitignored):
 zero-shot passes the trend model never reads, so `specific_category` is the
 coarse SegFormer label (`upper_clothes`, `pants`, …) and `confidence` is always
 1.0. Use `--mode full` if fine-grained subcategories are ever needed.
-`test_embedding_parity.py` verifies the lean embeddings are identical.
+`tests/test_embedding_parity.py` verifies the lean embeddings are identical.
 
 ## Pipeline
 
 Run from `Module3/`:
 
 ```bash
-python test_module1_sync.py && python test_embedding_parity.py      # guards first
+python tests/test_module1_sync.py && python tests/test_embedding_parity.py      # guards first
 
-python pinterest_garment_segmentation.py \
+python scripts/pinterest_garment_segmentation.py \
     --metadata_csv ../PinterestData/pinterest_dataset/metadata.csv \
     --output_dir   ../PinterestData/garment_data --limit 1000      # pilot; drop --limit for the full run
 
-python fit_per_category.py                                           # -> per_category_trend_model.pkl
-python cluster_stability_test.py \
+python scripts/fit_per_category.py                                           # -> per_category_trend_model.pkl
+python src/cluster_stability_test.py \
     --manifest_csv ../PinterestData/garment_data/garment_manifest.csv \
     --embeddings   ../PinterestData/garment_data/garment_embeddings.npy
-python temporal_holdout_validation.py \
+python scripts/temporal_holdout_validation.py \
     --manifest_csv ../PinterestData/garment_data/garment_manifest.csv \
     --embeddings   ../PinterestData/garment_data/garment_embeddings.npy \
     --n_clusters 15 --end_month 2026-08
 
-python gradio_demo_per_garment.py                                    # standalone UI
+python scripts/gradio_demo_per_garment.py                                    # standalone UI
 ```
 
 The combined M1 + M2 + M3 demo is the repo-root `demo.py` (pick **Module 3** or **All**).
 
-`fit_per_category.py` defaults to `--end_month 2026-08`. The scrape ended on
+`scripts/fit_per_category.py` defaults to `--end_month 2026-08`. The scrape ended on
 2026-09-11, so September is a partial month that would otherwise sit inside the
 growth/recency windows. That leaves 126,898 garments in the fit.
 
@@ -114,11 +114,11 @@ growth-only → −0.081. 0.6 beats recency-only (+0.098, CI +0.036 to +0.162), 
 0.6, but every weight is negative: high-scoring clusters tend to lose share. The score describes
 **current popularity**; it is not a forecast.
 
-*Dress fix.* `k_sweep.py` showed the instability came from k, not the data
+*Dress fix.* `scripts/k_sweep.py` showed the instability came from k, not the data
 (ARI by k: 4→0.95, 8→0.94, 12→0.89, 15→0.58), so dresses use k=8
 (`N_CLUSTERS_OVERRIDES`). ~Half of dress detections co-occur with a top in the
 same photo, and in 3,992 the dress mask is the *smaller* one, which is likely a
-SegFormer fragment (e.g. a long top's hem). `fit_per_category.py --drop_fragments` removes
+SegFormer fragment (e.g. a long top's hem). `scripts/fit_per_category.py --drop_fragments` removes
 them; it's off by default because it didn't change stability at k=8 and a small
 "dress" under a large cardigan can be genuine. The vendored segmenter is not
 modified.
@@ -149,7 +149,7 @@ match. Pinterest's results also skew heavily recent (~500 garments/month in
 2024 vs ~27k in Aug 2026), so absolute volumes mean little and only *relative*
 comparisons across clusters are used (scores are percentile ranks).
 
-## Tunable config (`trend_model.py`)
+## Tunable config (`src/trend_model.py`)
 
 `DEFAULT_N_CLUSTERS_PER_CATEGORY=15`, `N_CLUSTERS_OVERRIDES={"dress": 8}`,
 `GROWTH_WINDOW_MONTHS=3`, `RECENCY_HALF_LIFE_MONTHS=4`, `GROWTH_WEIGHT=0.6` /
@@ -162,7 +162,7 @@ widely seen months later?" after M3 is refit on full-resolution Pinterest photos
 ## Store mode (Module 4, Phase 0)
 
 Lean and full modes keep only an embedding and labels per garment. **Store mode** runs the exact
-Module 1 path that built the Fashion144k store (the shared loop in `Module2/01_segment_batch.py`), so
+Module 1 path that built the Fashion144k store (the shared loop in `Module2/src/01_segment_batch.py`), so
 Module 2 can score Pinterest outfits and Module 4 can suggest Pinterest garments. Into one folder (the
 "store", gitignored) it writes:
 
@@ -173,10 +173,10 @@ Module 2 can score Pinterest outfits and Module 4 can suggest Pinterest garments
   have different hashes;
 - `outputs/<key>/`: crops, embeddings and `metadata.json` (with `crop_path` made relative);
 - `garment_manifest.csv` + `garment_embeddings.npy`: one row per (metadata row, garment), the input
-  `fit_per_category.py` and the backtests read.
+  `scripts/fit_per_category.py` and the backtests read.
 
 ```bash
-python pinterest_garment_segmentation.py --mode store \
+python scripts/pinterest_garment_segmentation.py --mode store \
     --metadata_csv ../PinterestData/pinterest_dataset/metadata.csv --output_dir ../PinterestData/store
 python ../Module2/build_feature_store.py --output_root ../PinterestData/store/outputs \
     --store_dir ../PinterestData/store/feature_store \

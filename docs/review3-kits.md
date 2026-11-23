@@ -22,7 +22,7 @@ and `samples/` on the demo machine; share them as a zip over Drive.
 allowed replacement? Today "better" is only measured against deliberately spoiled outfits; this is
 the first check against human judgement.
 
-**Already built** (`python Module4/human_study.py build`): 20 street test outfits where Module 4
+**Already built** (`python Module4/scripts/human_study.py build`): 20 street test outfits where Module 4
 says "swap" (10 Fashion144k, 10 Pinterest, every crop readable), each shown twice: original vs
 Module 4's top suggestion, and original vs a random replacement for the same piece from the same
 H&M catalogue. 40 questions in `Module4/cache/human_study/pairs/Q01.png … Q40.png`, sides (A/B)
@@ -42,7 +42,7 @@ randomised, the two versions of an outfit never back to back. `key.csv` says whi
 5. Recruit **10–15 raters who are not on the team** (classmates, friends). About 5 minutes each.
 6. By 23 Nov 14:00: Responses → Download (.csv). Hand back the file.
 
-**Scoring** (done on the demo machine): `python Module4/human_study.py score --responses <file.csv>`
+**Scoring** (done on the demo machine): `python Module4/scripts/human_study.py score --responses <file.csv>`
 gives the share preferring Module 4's swap, the share preferring the random swap, and the lift
 between them with a 95% interval over raters.
 
@@ -76,7 +76,7 @@ dataset photos? The same photos supply the live demo.
    `condition`: outdoor / indoor / mirror / sitting / clash. `my_weak_piece`: for clash photos only,
    the piece *you* would change first (top, pants, skirt, shoes, …).
 
-**Run** (done on the demo machine): `python Module4/photo_batch.py --photos samples/phone_set` →
+**Run** (done on the demo machine): `python Module4/scripts/photo_batch.py --photos samples/phone_set` →
 `results.csv` (status, garments found, harmony, verdict, piece to swap, suggestions, seconds per
 photo) and `sheet.jpg` (every photo's garment overlay with its verdict).
 
@@ -123,7 +123,7 @@ Feeds the frontend overhaul.
 **Question:** of the H&M items the demo can suggest, how many look wrong? Code filters the
 catalogue (crop gate) but nobody has looked at what passes.
 
-**Already built** (`python Module4/catalogue_qa.py sheets`): 30 random suggestable items per garment
+**Already built** (`python Module4/scripts/catalogue_qa.py sheets`): 30 random suggestable items per garment
 type, 16 types, 480 items, on numbered sheets `Module4/cache/catalogue_qa/<type>.jpg`, plus
 `marks.csv` (one row per item: type, cell number, item id, `mark`, `comment`).
 
@@ -139,6 +139,6 @@ type, 16 types, 480 items, on numbered sheets `Module4/cache/catalogue_qa/<type>
    Leave `mark` **blank** for items that look fine.
 3. Save as CSV (keep the columns and the file name) and hand it back.
 
-**Scoring:** `python Module4/catalogue_qa.py score --marks <file>` → defect rate per type and overall.
+**Scoring:** `python Module4/scripts/catalogue_qa.py score --marks <file>` → defect rate per type and overall.
 
 **On the slide:** "Manual QA of 480 random suggestion items: X% flagged (mostly …)".

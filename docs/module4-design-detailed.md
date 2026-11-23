@@ -41,7 +41,7 @@ Pinterest AUC gate fails** (§2.1, Phase 0).
    The GNN can score any of them directly.
 4. **Pinterest garments** (143,612 from 54,876 photos) have only embeddings + a coarse label: lean mode
    saved no crops or attributes. The GNN can't score them without re-segmenting the photos.
-   The existing `--mode full` of `Module3/pinterest_garment_segmentation.py` does **not** fix this:
+   The existing `--mode full` of `Module3/scripts/pinterest_garment_segmentation.py` does **not** fix this:
    it adds fine category + confidence but still discards the crop, colour histogram and attributes.
 4a. **Pinterest images on disk are degraded** (verified 2026-10-07): 55,795 JPEGs in
    `PinterestData/pinterest_dataset/images/`, all **224×224**, produced by a plain
@@ -90,7 +90,7 @@ original Pinterest dataset is being supplied (option 1).** Options 2–3 are kep
 3. Last resort: use the 224×224 set, and report it as a known limitation with its own AUC.
 
 **Step 0.2: Store-mode segmentation.** Add `--mode store` to
-`Module3/pinterest_garment_segmentation.py`. It runs the same vendored M1 path as Fashion144k and writes, per
+`Module3/scripts/pinterest_garment_segmentation.py`. It runs the same vendored M1 path as Fashion144k and writes, per
 photo, the same artefacts the Fashion144k store was built from (crop PNG, `.npy`, `metadata.json`
 with attributes + colour histogram). Then build `PinterestData/feature_store/` with the
 **same builder** used for `Fashion144k_v1/feature_store/` (identical `row_dim` 570 layout). Guards:
@@ -147,7 +147,7 @@ left open:
 5. **D8a dedupe representatives are computed twice:** once over the demo pool and once over test rows
    only. Otherwise an eval-pool duplicate group whose representative is a train row would vanish.
 6. **Calibrated knobs** (evaluation, §6.6). `w_t`, τ, ε and the selection rule carry a `status` in
-   `Module4/m4_settings.json`; until calibrated, every `Recommendation` lists them as provisional.
+   `Module4/config/m4_settings.json`; until calibrated, every `Recommendation` lists them as provisional.
    All are now calibrated: rule `slot_percentile`, w_t = 0.2 (w_h = 0.8), τ = 0.392 (`slot_percentile`; 0.333 before Pinterest joined),
    ε = 0.2σ.
 7. **D5 no padding masks.** What-if outfits keep the original size and reference outfits are batched by
@@ -192,7 +192,7 @@ New folder `Module4/`. Each unit has one job:
 | `human_study/` | *(after Phase 0)* Collage generation for the blind A/B study + analysis (§6.4) | `render_recommendation` |
 | `README.md` | How to run, measured numbers, caveats | — |
 
-`Recommendation` is a plain dataclass (`Module4/recommendation.py`): `verdict: "swap" | "refresh" | "keep"`,
+`Recommendation` is a plain dataclass (`Module4/src/recommendation.py`): `verdict: "swap" | "refresh" | "keep"`,
 `selection_rule`, `pool_mode`, `weights {w_h, w_t}`, `thresholds {tau, eps}`,
 `baseline {harmony_pct, harmony_logit, trend_mean}`, `swap_piece {file, category, group}`,
 `suggestions [ {piece_file, pool_row, source, outfit_id, file, crop_path, from_type, to_type,

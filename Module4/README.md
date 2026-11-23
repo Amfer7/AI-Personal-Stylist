@@ -20,16 +20,16 @@ your outfit ──► for each piece: try every allowed replacement ──► sc
 
 Run everything from the repo root. It needs the Fashion144k data, the M2 checkpoint and the M3 trend
 model locally (see the root README, **Data**). Every path and setting lives in
-[`m4_settings.json`](m4_settings.json), all repo-relative.
+[`config/m4_settings.json`](config/m4_settings.json), all repo-relative.
 
 ```bash
 # 1. Build the cache once (~20 s on the RTX 3070 Ti). Re-run with --force after changing the
 #    checkpoint, trend model, stores or duplicate rule; Module 4 refuses to load a stale cache.
-python Module4/build_cache.py
+python Module4/scripts/build_cache.py
 
 # 2. Recommend for a photo (runs Module 1 first) or for an existing Module 1 outfit folder
-python Module4/run_recommend.py --photo samples/image2.jpg
-python Module4/run_recommend.py --outfit_dir <M1 output folder> --pool eval --json rec.json
+python Module4/src/run_recommend.py --photo samples/image2.jpg
+python Module4/src/run_recommend.py --outfit_dir <M1 output folder> --pool eval --json rec.json
 
 # Options: --pool demo|eval   --rule max_gain|topk_mean_gain|slot_percentile   --w-t 0.3
 #          --same-type (strict like-for-like)   --no-trend-drop (trend floor)   --device cpu
@@ -37,18 +37,18 @@ python Module4/run_recommend.py --outfit_dir <M1 output folder> --pool eval --js
 # Demo (all four modules, live trend-weight slider, "Try this swap" board)
 python demo.py                 # --vram-gb 4 for a smaller GPU
 # Slide figures -> demos/recommendation_tradeoff.png, demos/recommendation_demo.png
-python Module4/render_recommendation.py --tradeoff --examples
+python Module4/scripts/render_recommendation.py --tradeoff --examples
 
 # 3. Evaluation (spec §6): calibrate on the dev set, then run the report set once
-python Module4/eval_recovery.py --set dev --freeze    # ~5 min; writes the calibrated settings
-python Module4/eval_recovery.py --set report          # ~5 min; refuses a second run without --force (add --source pinterest for Pinterest outfits)
+python Module4/src/eval_recovery.py --set dev --freeze    # ~5 min; writes the calibrated settings
+python Module4/src/eval_recovery.py --set report          # ~5 min; refuses a second run without --force (add --source pinterest for Pinterest outfits)
 
 # 4. Tests
 python -m pytest Module4                  # everything (needs the data + a built cache)
 python -m pytest Module4 -m "not real"    # unit tests only; run anywhere
 ```
 
-`render_recommendation.py` needs scipy. For the slide examples it picks, per verdict, the first
+`scripts/render_recommendation.py` needs scipy. For the slide examples it picks, per verdict, the first
 report-set outfit whose drawn crops are all readable (`crop_readable`: at least 4,000 opaque pixels, the
 largest connected piece at least 85% of them, and that piece filling at least 35% of its bounding box),
 because first-match examples turned out to be fragmentary crops.
@@ -62,7 +62,7 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
 
 ## How it works
 
-1. **Cache build** (`build_cache.py`, once). For each of the 480,079 garments in the feature store:
+1. **Cache build** (`scripts/build_cache.py`, once). For each of the 480,079 garments in the feature store:
    the first layer of the GNN (the **input projection**, 555 → 128 numbers) is computed ahead of time,
    along with the M3 trend score and style cluster. **Reposts** (the same photo posted more than once)
    are found and merged, so each garment is offered once.
@@ -70,7 +70,7 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
    **co-occurrence matrix**) and scores every real test outfit to get a **harmony reference**.
 2. **Scoring** (`Recommender.score()`). For each piece of your outfit, every allowed replacement is
    swapped in and the whole what-if outfit is re-scored. This uses a **dense, batched copy of the M2
-   GNN** (`dense_gnn.py`) that handles hundreds of thousands of what-if outfits per piece in one
+   GNN** (`src/dense_gnn.py`) that handles hundreds of thousands of what-if outfits per piece in one
    GPU pass. Tests check that it matches M2's own `model(build_graph(...))`.
 3. **Deciding** (`Recommender.decide()`). The stored gains are turned into a verdict (`swap`,
    `refresh` or `keep`) and three style-diverse suggestions. A refresh suggestion must be trendier
@@ -82,30 +82,30 @@ photos) and `eval/` (per-outfit records, summaries and Markdown reports).
 
 | File | What it does |
 |---|---|
-| `m4_settings.json` / `m4_settings.py` | Every path and setting; `status` marks which ones are still provisional |
-| `m2_bridge.py` | The single doorway into Module 2 and Module 3 code (never copied, never modified) |
-| `swap_groups.py` | The 16 garment types, the swap groups (D4) and the co-occurrence filter |
-| `dense_gnn.py` | Batched GNN scorer with GPU-memory-aware chunking (halves the chunk on out-of-memory) |
-| `candidate_pool.py` | Builds and loads the candidate pool: projection, trend, repost groups, the near-duplicate rule, crop paths |
-| `calibrate_dup.py` | Contact sheets of garment pairs that pass the near-duplicate rule, by CLIP cosine band |
-| `crop_quality.py` | The demo pool's crop quality gate: shape metrics and CLIP scores per crop, the per-type rule |
-| `calibrate_crops.py` | Contact sheets of crops the gate rejects (one row per reason) and keeps, per type |
-| `hm_catalogue.py` | H&M product photos → Module 1-style folders (cut-out, CLIP, attributes); `--align` for the store |
-| `hm_domain_check.py` | Does the GNN / trend model behave on H&M studio shots? Type, embedding gap, trend, GNN transfer |
-| `harmony_reference.py` | Harmony percentiles and the score spreads (σ) used to standardise gains |
-| `outfit_state.py` | An outfit as a list of pieces; loads Module 1 output (with area normalisation) |
-| `swap_scorer.py` | Outfit score + every swap's score for one piece |
-| `selection.py` | Gains, the three selection rules, style-diverse top 3 |
-| `explain.py` | The descriptive "what changed" line |
-| `recommendation.py` | The `Recommendation` result: JSON in/out and a text summary |
-| `recommender.py` | Ties it together: `score()`, `decide()`, `recommend()` |
-| `build_cache.py`, `run_recommend.py` | Command-line entry points |
-| `photo_batch.py` | Whole pipeline on a folder of photos → results table + overlay sheet (phone-photo set, demo photo picks) |
-| `human_study.py` | Blind A/B pairs (Module 4 swap vs random swap) for a rater study, and scoring of the form responses |
-| `catalogue_qa.py` | Numbered sheets of random suggestion items per type for manual QA, and the defect rate from the marks |
-| `eval_recovery.py` | The evaluation: outfit sets, corruption, baselines, calibration, reports |
-| `eval_metrics.py` | Pure helpers for it: per-outfit summaries, threshold, Pareto weight, bootstrap CIs, McNemar |
-| `conftest.py`, `test_*.py` | Tests: 103 in total, one file per unit. Tests that need the real data are marked `real` |
+| `config/m4_settings.json` / `src/m4_settings.py` | Every path and setting; `status` marks which ones are still provisional |
+| `src/m2_bridge.py` | The single doorway into Module 2 and Module 3 code (never copied, never modified) |
+| `src/swap_groups.py` | The 16 garment types, the swap groups (D4) and the co-occurrence filter |
+| `src/dense_gnn.py` | Batched GNN scorer with GPU-memory-aware chunking (halves the chunk on out-of-memory) |
+| `src/candidate_pool.py` | Builds and loads the candidate pool: projection, trend, repost groups, the near-duplicate rule, crop paths |
+| `scripts/calibrate_dup.py` | Contact sheets of garment pairs that pass the near-duplicate rule, by CLIP cosine band |
+| `src/crop_quality.py` | The demo pool's crop quality gate: shape metrics and CLIP scores per crop, the per-type rule |
+| `scripts/calibrate_crops.py` | Contact sheets of crops the gate rejects (one row per reason) and keeps, per type |
+| `src/hm_catalogue.py` | H&M product photos → Module 1-style folders (cut-out, CLIP, attributes); `--align` for the store |
+| `scripts/hm_domain_check.py` | Does the GNN / trend model behave on H&M studio shots? Type, embedding gap, trend, GNN transfer |
+| `src/harmony_reference.py` | Harmony percentiles and the score spreads (σ) used to standardise gains |
+| `src/outfit_state.py` | An outfit as a list of pieces; loads Module 1 output (with area normalisation) |
+| `src/swap_scorer.py` | Outfit score + every swap's score for one piece |
+| `src/selection.py` | Gains, the three selection rules, style-diverse top 3 |
+| `src/explain.py` | The descriptive "what changed" line |
+| `src/recommendation.py` | The `Recommendation` result: JSON in/out and a text summary |
+| `src/recommender.py` | Ties it together: `score()`, `decide()`, `recommend()` |
+| `scripts/build_cache.py`, `src/run_recommend.py` | Command-line entry points |
+| `scripts/photo_batch.py` | Whole pipeline on a folder of photos → results table + overlay sheet (phone-photo set, demo photo picks) |
+| `scripts/human_study.py` | Blind A/B pairs (Module 4 swap vs random swap) for a rater study, and scoring of the form responses |
+| `scripts/catalogue_qa.py` | Numbered sheets of random suggestion items per type for manual QA, and the defect rate from the marks |
+| `src/eval_recovery.py` | The evaluation: outfit sets, corruption, baselines, calibration, reports |
+| `src/eval_metrics.py` | Pure helpers for it: per-outfit summaries, threshold, Pareto weight, bootstrap CIs, McNemar |
+| `tests/conftest.py`, `test_*.py` | Tests: 103 in total, one file per unit. Tests that need the real data are marked `real` |
 
 ## Measured performance
 
@@ -201,9 +201,9 @@ fragments, collages or mislabelled pieces: 31% for Fashion144k inputs, 48% for P
 Fashion144k crops are often tiny (median 98×71 px). In Pinterest collages, flat-lays and product shots
 next to a model, several garments merge into one mask, and pins carry caption text.
 
-`build_cache.py` measures every crop once into `cache/crop_metrics.npz`: six shape metrics from the
+`scripts/build_cache.py` measures every crop once into `cache/crop_metrics.npz`: six shape metrics from the
 alpha mask (~5 minutes for 634k crops) and two CLIP scores from the stored embedding (seconds). The gate
-in `m4_settings.json` → `crop_gate` keeps a crop if all of these hold:
+in `config/m4_settings.json` → `crop_gate` keeps a crop if all of these hold:
 
 | Test | Bar | Catches |
 |---|---|---|
@@ -224,7 +224,7 @@ stricter fill or cover bars were tried for it and rejected, as they also drop go
 check (added after the before/after figures below) and the query exclusions, 320,744. On the same 200
 outfits, every shown suggestion passes, 97% of verdicts are unchanged, and the top suggestion's harmony
 percentile goes from 87.3 to 87.0. `rep_eval` is untouched, so the evaluation results stand. Check or
-retune the bars with `python Module4/calibrate_crops.py [--types dress shoe] [--bands label text]`
+retune the bars with `python Module4/scripts/calibrate_crops.py [--types dress shoe] [--bands label text]`
 (sheets in `cache/crop_calibration/`).
 
 Known gaps: crops that pass can still be low-resolution (a 1,100-px shoe pair) or carry a small stray
@@ -234,7 +234,7 @@ piece. The gate filters what Module 1 produced; it doesn't fix the masks.
 
 Indian wear is out of scope for now (decision 2026-11-19): a saree offered to a man made the demo look
 broken. The Pinterest catalogue was scraped with 44 Indian queries (saree, lehenga, kurta, haldi,
-Lakme fashion week, …; see `PinterestData/README_DATASET.md`). `m4_settings.json` →
+Lakme fashion week, …; see `PinterestData/README_DATASET.md`). `config/m4_settings.json` →
 `demo_exclude_queries` lists them, and no garment from a photo found by any of them (a pin can come
 from several queries) becomes a demo suggestion. The store's `queries` file
 (`PinterestData/store/outfit_queries.csv`, built by `PinterestData/build_outfit_queries.py`) maps
@@ -264,7 +264,7 @@ the trend model and the GNN untouched, so those still include Indian wear.
   wrong type labels. The crop quality gate (above) keeps them out of demo suggestions; the evaluation
   pool still contains them, as it did when the results were calibrated.
 - **Two trend-weight conventions.** The demo slider mixes gain = (1 − w)·ΔH + w·ΔT, the same mix as the
-  evaluation and the trade-off figure. `run_recommend.py --w-t` keeps `w_h` from the settings (0.8) and
+  evaluation and the trade-off figure. `src/run_recommend.py --w-t` keeps `w_h` from the settings (0.8) and
   changes only `w_t`. At the calibrated w = 0.2 the two agree.
 - **Demo model sharing.** In **All**, Module 4 loads first, and Modules 2 and 3 reuse its GNN and trend
   model, so everything reports one harmony reference (the full test set). The old 500-outfit reference
@@ -276,7 +276,7 @@ the trend model and the GNN untouched, so those still include Indian wear.
 
 Checked against the data on 2026-10-07. If one stops being true, the design needs another look.
 
-- Module 1 emits exactly the 16 specific types in `swap_groups.py`, and only 4 broad categories occur
+- Module 1 emits exactly the 16 specific types in `src/swap_groups.py`, and only 4 broad categories occur
   (`top`, `bottom`, `dress`, `accessory`), so every swap group stays inside one broad category.
 - No outfit holds two pieces of one type (left and right shoes are merged), so a swap is always one piece
   for one piece. A type that is already worn has a co-occurrence count of 0, so it is blocked.
@@ -304,13 +304,13 @@ would then need a ±1e-3 tolerance.
 
 Demo suggestions come from H&M product photos (Kaggle "H&M Personalized Fashion Recommendations",
 `H&M Dataset/`, gitignored), not from street-photo crops: clean cut-outs read better, and every item
-has a gender tag. `hm_catalogue.py` cuts out each adult article with rembg u2net (on the GPU through
+has a gender tag. `src/hm_catalogue.py` cuts out each adult article with rembg u2net (on the GPU through
 onnxruntime-gpu 1.23, the CUDA 12 build), writes Module 1-style folders keyed by the article id
 without its leading zero, and Module 2's `build_feature_store.py` turns them into a store. 55,862
 articles; 54,737 pass the crop gate.
 
 CLIP sees the studio-photo style: a linear classifier tells H&M from street crops at 98%, and the GNN
-scored H&M candidates 0.43σ higher than street ones for it (`hm_domain_check.py`). `hm_catalogue.py
+scored H&M candidates 0.43σ higher than street ones for it (`scripts/hm_domain_check.py`). `src/hm_catalogue.py
 --align` maps each type's H&M embeddings onto the street stores' mean **and covariance** for that type
 (CORAL, `--method coral`, the default; raw copy in `features_raw.npy`). The first version shifted only
 the mean. That removed the average boost but left the studio photos' tighter spread, so H&M clothing piled
@@ -330,10 +330,10 @@ The store is marked `product_photos: true`: its crops skip the gate's CLIP label
 split file is empty, so it never enters `rep_eval`, co-occurrence or the harmony reference, and
 calibrated results stand. On 400 test outfits the demo verdicts barely move (swap 14.0% → 13.8%).
 
-    python Module4/hm_catalogue.py --out "H&M Dataset/store"
-    cd Module2 && python build_feature_store.py --output_root "../H&M Dataset/store/outputs" --store_dir "../H&M Dataset/store/feature_store"
-    python Module4/hm_catalogue.py --align "H&M Dataset/store/feature_store"
-    python Module4/build_cache.py --force --workers 4      # 12 workers ran the machine out of memory
+    python Module4/src/hm_catalogue.py --out "H&M Dataset/store"
+    cd Module2 && python scripts/build_feature_store.py --output_root "../H&M Dataset/store/outputs" --store_dir "../H&M Dataset/store/feature_store"
+    python Module4/src/hm_catalogue.py --align "H&M Dataset/store/feature_store"
+    python Module4/scripts/build_cache.py --force --workers 4      # 12 workers ran the machine out of memory
 
 ## Adding another catalogue
 
@@ -343,15 +343,15 @@ No Module 4 code changes are needed. Pinterest was added this way:
    `broad_category` and the relative `file`), with crops under `<output_root>/<outfit_key>/`. Store areas
    in the 98,304-px frame, or every new garment looks oversized next to the others.
 2. Write a split file: `{outfit_key: "train" | "val" | "test"}`.
-3. Add an entry to `stores` in `m4_settings.json`.
-4. Run `python Module4/build_cache.py`. The fingerprint changes, so everything is rebuilt: projection,
+3. Add an entry to `stores` in `config/m4_settings.json`.
+4. Run `python Module4/scripts/build_cache.py`. The fingerprint changes, so everything is rebuilt: projection,
    trend, cross-catalogue reposts, co-occurrence, the harmony reference and the crop metrics. Check the
-   crop gate on the new catalogue with `calibrate_crops.py`.
-5. Recalibrate with `eval_recovery.py --set dev --freeze`.
+   crop gate on the new catalogue with `scripts/calibrate_crops.py`.
+5. Recalibrate with `src/eval_recovery.py --set dev --freeze`.
 
 ## Next
 
-1. **Human study** (spec §6.4): blind pairwise preferences on outfit boards (`outfit_board.py`).
+1. **Human study** (spec §6.4): blind pairwise preferences on outfit boards (`src/outfit_board.py`).
 2. **GNN fine-tune on both catalogues** (deferred; see `docs/next-steps.md`).
-3. Re-check the near-duplicate threshold on the mixed pool (`calibrate_dup.py`, needs a visual check).
+3. Re-check the near-duplicate threshold on the mixed pool (`scripts/calibrate_dup.py`, needs a visual check).
    See [`docs/next-steps.md`](../docs/next-steps.md).

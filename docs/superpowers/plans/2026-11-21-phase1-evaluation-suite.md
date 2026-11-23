@@ -15,10 +15,10 @@ Roadmap and later phases: `docs/superpowers/plans/2026-11-21-style-invariant-roa
 - Run tests per module from the repo root: `python -m pytest Module4 -q`, `python -m pytest Module1/style_encoder -q`.
 - Tests that need real data, model weights or a GPU carry `@pytest.mark.real`; the quick run is `-m "not real"`.
 - Data never enters git: add every new data or cache folder to `.gitignore` before writing to it.
-- Embeddings are 512-d float32 and L2-normalised; transparent crops are composited onto white before encoding (Module 1's contract, `_load_rgb` in `Module1/clip_extract_embeddings.py`).
+- Embeddings are 512-d float32 and L2-normalised; transparent crops are composited onto white before encoding (Module 1's contract, `_load_rgb` in `Module1/src/clip_extract_embeddings.py`).
 - Module 4 must not touch `CandidatePool._is_rep` from outside the class; use the method added in Task 1.
 - Log every result and decision in `docs/next-steps.md` as it happens.
-- GPU memory: 8 GB; Module 4 respects `vram_gb` from `Module4/m4_settings.json`.
+- GPU memory: 8 GB; Module 4 respects `vram_gb` from `Module4/config/m4_settings.json`.
 
 ---
 
@@ -26,7 +26,7 @@ Roadmap and later phases: `docs/superpowers/plans/2026-11-21-style-invariant-roa
 
 | File | Responsibility |
 |---|---|
-| `Module4/candidate_pool.py` (modify) | `CandidatePool.set_demo_rep()`: swap which rows are demo representatives |
+| `Module4/src/candidate_pool.py` (modify) | `CandidatePool.set_demo_rep()`: swap which rows are demo representatives |
 | `Module4/type_mix.py` (create) | Count suggested types per verdict; compare a demo pool with the street pool; CLI with a pass/fail threshold |
 | `Module4/test_type_mix.py` (create) | Unit tests for the counting and comparison; one `real` smoke test |
 | `Module4/phone_set.py` (create) | Run Module 1 + Module 4 on every photo in a folder; write one Recommendation JSON per photo and a summary |
@@ -47,9 +47,9 @@ Roadmap and later phases: `docs/superpowers/plans/2026-11-21-style-invariant-roa
 ### Task 1: Suggestion type-mix metric
 
 **Files:**
-- Modify: `Module4/candidate_pool.py` (class `CandidatePool`, after `empty_rows`)
+- Modify: `Module4/src/candidate_pool.py` (class `CandidatePool`, after `empty_rows`)
 - Create: `Module4/type_mix.py`
-- Test: `Module4/test_type_mix.py`, `Module4/test_candidate_pool.py`
+- Test: `Module4/test_type_mix.py`, `Module4/tests/test_candidate_pool.py`
 
 **Interfaces:**
 - Consumes: `Recommender.from_settings(settings)`, `Recommender.score(state, mode="demo", exclude=(source, key))`, `Recommender.decide(table)`, `state_from_pool(pool, source, key)`, `test_outfits(pool)`, `gate_demo_pool(settings, meta, scalars)`, `load_store_arrays(settings)`, `pool_dir(settings)`; `Recommendation.verdict`, `Recommendation.suggestions[i].to_type`.
@@ -112,7 +112,7 @@ def test_run_returns_both_pools(settings):
     assert sum(res["demo"]["verdicts"].values()) == sum(res["street"]["verdicts"].values()) == 5
 ```
 
-Add to `Module4/test_candidate_pool.py`:
+Add to `Module4/tests/test_candidate_pool.py`:
 ```python
 def test_set_demo_rep_changes_which_rows_are_demo_candidates():
     import numpy as np
@@ -130,12 +130,12 @@ def test_set_demo_rep_changes_which_rows_are_demo_candidates():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `python -m pytest Module4/test_type_mix.py Module4/test_candidate_pool.py -q -m "not real"`
+Run: `python -m pytest Module4/test_type_mix.py Module4/tests/test_candidate_pool.py -q -m "not real"`
 Expected: FAIL with `ModuleNotFoundError: No module named 'type_mix'` and `AttributeError: 'CandidatePool' object has no attribute 'set_demo_rep'`.
 
 - [ ] **Step 3: Implement**
 
-In `Module4/candidate_pool.py`, inside `class CandidatePool`, right after `empty_rows`:
+In `Module4/src/candidate_pool.py`, inside `class CandidatePool`, right after `empty_rows`:
 ```python
     def set_demo_rep(self, rep_demo: np.ndarray) -> None:
         """Replace the demo representatives (rep_demo[i] == i marks a demo row), e.g. to compare the
@@ -261,14 +261,14 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `python -m pytest Module4/test_type_mix.py Module4/test_candidate_pool.py -q -m "not real"`
+Run: `python -m pytest Module4/test_type_mix.py Module4/tests/test_candidate_pool.py -q -m "not real"`
 Expected: PASS.
 Then the real smoke test: `python -m pytest Module4/test_type_mix.py -q -m real` → PASS (needs the built cache).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Module4/candidate_pool.py Module4/type_mix.py Module4/test_type_mix.py Module4/test_candidate_pool.py
+git add Module4/src/candidate_pool.py Module4/type_mix.py Module4/test_type_mix.py Module4/tests/test_candidate_pool.py
 git commit -m "Module 4: suggestion type-mix metric with a street-pool comparison"
 ```
 
@@ -654,7 +654,7 @@ git commit -m "Style encoder: retrieval, pair cosine and domain classifier metri
 - Test: `Module1/style_encoder/test_eval_invariance.py`
 
 **Interfaces:**
-- Consumes: `load_refs`, `match_pairs`, `GarmentRef` (Task 2); `polygon_cutout` (Task 3); `recall_at_k`, `pair_cosine`, `domain_classifier_acc` (Task 4); `get_clip_model(device)` and `_load_rgb(image)` from `Module1/clip_extract_embeddings.py`.
+- Consumes: `load_refs`, `match_pairs`, `GarmentRef` (Task 2); `polygon_cutout` (Task 3); `recall_at_k`, `pair_cosine`, `domain_classifier_acc` (Task 4); `get_clip_model(device)` and `_load_rgb(image)` from `Module1/src/clip_extract_embeddings.py`.
 - Produces:
   - Encoder protocol: an object with `name: str` and `encode(images: list[PIL.Image.Image]) -> np.ndarray` of shape (n, 512), float32, unit rows. Phase 2's `StyleEncoder` implements the same protocol.
   - `ClipEncoder(device=None, batch=64)`
@@ -911,7 +911,7 @@ git commit -m "Style encoder: encoder interface and DeepFashion2 invariance eval
 - Test: `Module4/test_phone_set.py`
 
 **Interfaces:**
-- Consumes: `segment_photo(photo, out_root, device=None) -> str` from `Module4/run_recommend.py`; `Recommender.from_settings(settings)`; `Recommender.recommend(outfit_dir) -> Recommendation`; `Recommendation.to_json()`, `.verdict`, `.suggestions[i].to_type`, `.baseline["harmony_pct"]`.
+- Consumes: `segment_photo(photo, out_root, device=None) -> str` from `Module4/src/run_recommend.py`; `Recommender.from_settings(settings)`; `Recommender.recommend(outfit_dir) -> Recommendation`; `Recommendation.to_json()`, `.verdict`, `.suggestions[i].to_type`, `.baseline["harmony_pct"]`.
 - Produces:
   - `photo_manifest(folder: str) -> list[str]` — sorted `.jpg` / `.jpeg` / `.png` paths
   - `summary_row(photo: str, rec) -> dict` with keys `photo`, `verdict`, `harmony_pct`, `types`
