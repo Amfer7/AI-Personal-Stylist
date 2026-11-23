@@ -18,6 +18,9 @@ Run (from the repo root):
     pip install gradio      # one-time
     python demo.py          # opens the GUI in your browser
     python demo.py --vram-gb 4    # lower GPU-memory cap (default 6, from Module4/m4_settings.json)
+    python demo.py --advanced     # also show the device and Module 4 options (pool, rule, ...)
+    python demo.py --share --auth team:password   # public link for remote viewers (needs a password;
+                                                  # or set DEMO_AUTH=team:password instead of --auth)
 
 Notes:
     - Modules 2-4 need Module 1's segmentation output, so every run starts with Module 1.
@@ -26,6 +29,7 @@ Notes:
 """
 
 import argparse
+import html
 import os
 import sys
 import time
@@ -59,6 +63,9 @@ BOARD_PNG = os.path.join(DEMOS, "recommendation_board.png")
 
 IMAGE_ID = "demo_live"
 EXAMPLE_PHOTO = os.path.join(HERE, "samples", "image2.jpg")
+# An outfit, and a dog in a sweater to show the person check stopping the run.
+EXAMPLES = [EXAMPLE_PHOTO,
+            os.path.join(HERE, "samples", "nonhuman", "dog_blue_sweater.jpg")]
 
 MODULE_1 = "Module 1 (perception)"
 MODULE_2 = "Module 2 (harmoniousness)"
@@ -73,6 +80,22 @@ DEFAULT_OPTIONS = ("demo", False, False, SETTINGS.rule, SETTINGS.w_t)
 M4_OUTPUT_NAMES = ["m4_verdict", "m4_gallery", "m4_also", "m4_table", "m4_choice", "m4_board",
                    "m4_board_text", "m4_state"]
 OUTPUT_NAMES = ["perception", "harmony", "trend", "log"] + M4_OUTPUT_NAMES
+TABS = {MODULE_1: "m1", MODULE_2: "m2", MODULE_3: "m3", MODULE_4: "m4"}
+
+CSS = """
+.gradio-container { max-width: 1320px !important; margin: 0 auto !important; }
+#hero { text-align: center; }
+#hero h1 { font-size: 3rem; line-height: 1.15; margin: 0.6rem 0 0.4rem; }
+#hero p { max-width: 760px; margin: 0 auto 0.6rem; color: var(--body-text-color-subdued); }
+#module-bar .wrap { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+#module-bar .wrap label { flex: 0 0 auto; width: auto; padding: 10px 16px; white-space: nowrap; }
+#status { min-height: 1.6rem; font-size: 1.02rem; }
+#status .warn-box { padding: 10px 16px; border-radius: 12px; background: #fff3e0;
+                    border: 1px solid #fb8c00; color: #8a4500; }
+.dark #status .warn-box { background: rgba(251, 140, 0, 0.14); color: #ffb74d; }
+#run-btn { font-size: 1.05rem; }
+#results .tab-wrapper button { font-weight: 600; }
+"""
 
 
 def _load_module(path, name):
@@ -199,6 +222,47 @@ def try_swap(st, label):
     return swap_board(r, st["table"].state, rec.pool, rec.settings, labels.index(label), BOARD_PNG)
 
 
+def run_status(log):
+    """One line above the result tabs, so a stopped run or an error is visible from any tab."""
+    lines = [l.strip() for l in (log or "").splitlines() if l.strip()]
+    if not lines:
+        return ""
+    err = next((l for l in lines if l.startswith("[error]")), None)
+    if err:
+        return f"❌ Error: {err[len('[error]'):].strip()} (details in the Log tab)"
+    if lines[-1].startswith(">> done in"):
+        return f"✅ Done in {lines[-1][len('>> done in'):].strip()}"
+    return f"⚠️ {lines[-1]}"
+
+
+def status_html(log):
+    """run_status() as HTML for the status line; a warning sits in an orange rounded box."""
+    text = run_status(log)
+    if not text:
+        return ""
+    cls = ' class="warn-box"' if text.startswith("⚠️") else ""
+    return f"<div{cls}>{html.escape(text)}</div>"
+
+
+def tab_for(module):
+    """The result tab a run opens: the module's own tab, or None (stay put) for All."""
+    return TABS.get(module)
+
+
+def _open_tab(module):
+    return gr.Tabs(selected=tab_for(module)) if tab_for(module) else gr.Tabs()
+
+
+def parse_auth(value):
+    """'user:password' -> (user, password); None stays None. Bad values raise ValueError."""
+    if value is None:
+        return None
+    user, sep, pw = value.partition(":")
+    if not (sep and user and pw):
+        raise ValueError("--auth / DEMO_AUTH must look like user:password")
+    return user, pw
+
+
 def analyze(image_path, module, device, pool_mode, same_type, no_trend_drop, rule, w_t):
     """Run the requested module(s) on one photo; returns values in the order of OUTPUT_NAMES."""
     if not image_path:
@@ -297,63 +361,80 @@ def analyze(image_path, module, device, pool_mode, same_type, no_trend_drop, rul
         return (None, None, None, "\n".join(log)) + _m4_empty()
 
 
-def build_ui():
+def theme():
+    return gr.themes.Default(primary_hue="rose", secondary_hue="slate", neutral_hue="slate",
+                             font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
+                             radius_size="md")
+
+
+def build_ui(advanced=False):
+    """advanced=False hides the device and Module 4 options; they keep their calibrated defaults."""
     from demo_panel import PER_PIECE_HEADERS
-    with gr.Blocks(title="Outfit Compatibility Demo") as ui:
-        gr.Markdown(
-            "# Outfit Compatibility Demo\n"
-            "Upload or paste a full-body outfit photo, choose which module to run, "
-            "then click **Run**.\n\n"
-            "- **Module 1 (perception)** — segments the photo into garments and reads "
-            "their attributes (colour, pattern, formality, …).\n"
-            "- **Module 2 (harmoniousness)** — scores the outfit 0–100 with the trained GNN "
-            "(also shows the drop if one garment is swapped).\n"
-            "- **Module 3 (trend)** — scores *each garment* 0–100 for current popularity on "
-            "Pinterest in its category, and marks the least on-trend piece.\n"
-            "- **Module 4 (recommend)** — tries every allowed replacement for every piece and says "
-            "which one piece to swap and what for, or that the outfit is already strong.\n"
-            "- **All** — everything.\n\n"
-            "> The **first** run loads the models (~30–60s); every run after that is fast."
-        )
+    with gr.Blocks(title="AI-Powered Personal Stylist") as ui:
+        gr.Markdown("# AI-Powered Personal Stylist\n"
+                    "Upload a full-body outfit photo and press **Run**: the system reads each garment, "
+                    "scores how well the outfit goes together and how on-trend each piece is, and "
+                    "suggests the one swap that improves it most.", elem_id="hero")
+        with gr.Accordion("What each module does", open=False):
+            gr.Markdown(
+                "- **1 · Perception**: segments the photo into garments and reads their attributes "
+                "(colour, pattern, formality, …).\n"
+                "- **2 · Harmony**: scores the outfit 0–100 with the trained GNN "
+                "(and shows the drop if one garment is swapped).\n"
+                "- **3 · Trend**: scores *each garment* 0–100 for current popularity on Pinterest in "
+                "its category, and marks the least on-trend piece.\n"
+                "- **4 · Recommendation**: tries every allowed replacement for every piece and says "
+                "which one piece to swap and what for, or that the outfit is already strong.\n\n"
+                "The **first** run loads the models (~30–60s); every run after that is fast.")
         m4_state = gr.State(None)
-        with gr.Row():
-            with gr.Column(scale=1):
-                image = gr.Image(sources=["upload", "clipboard"], type="filepath",
+        module = gr.Radio([MODULE_1, MODULE_2, MODULE_3, MODULE_4, ALL], value=ALL,
+                          label="Which module to run", elem_id="module-bar")
+        with gr.Row(equal_height=False):
+            with gr.Column(scale=1, min_width=320):
+                image = gr.Image(sources=["upload", "clipboard"], type="filepath", height=340,
                                  label="Outfit photo (upload or paste)")
-                module = gr.Radio([MODULE_1, MODULE_2, MODULE_3, MODULE_4, ALL], value=ALL,
-                                  label="Which module to run")
-                device = gr.Radio(["auto", "cuda", "cpu"], value="auto", label="Device (applies on the first run)")
+                run_btn = gr.Button("Run", variant="primary", size="lg", elem_id="run-btn")
                 w_t = gr.Slider(0.0, 1.0, value=SETTINGS.w_t, step=0.05,
-                                label="Trend weight (Module 4): 0 = harmony only, 1 = trend only")
-                with gr.Accordion("Module 4 advanced options (pool, same type and trend floor apply on the next Run)", open=False):
+                                label="Trend weight (Module 4): 0 = harmony only, 1 = trend only",
+                                info="Re-ranks the suggestions instantly after a run.")
+                with gr.Accordion("Module 4 advanced options (pool, same type and trend floor apply "
+                                  "on the next Run)", open=False, visible=advanced):
+                    device = gr.Radio(["auto", "cuda", "cpu"], value="auto",
+                                      label="Device (applies on the first run)")
                     pool = gr.Radio(POOLS, value="demo",
                                     label="Candidate pool (demo = all garments, eval = test split only)")
                     same_type = gr.Checkbox(False, label="Same type only (strict like-for-like)")
                     no_trend_drop = gr.Checkbox(False, label="Never suggest a less trendy piece (trend floor)")
                     rule = gr.Dropdown(RULES, value=SETTINGS.rule, label="Selection rule")
-                run_btn = gr.Button("Run", variant="primary")
-                if os.path.exists(EXAMPLE_PHOTO):
-                    gr.Examples(examples=[[EXAMPLE_PHOTO]], inputs=[image],
-                                label="Example (samples/image2.jpg)")
+                examples = [p for p in EXAMPLES if os.path.exists(p)]
+                if examples:
+                    gr.Examples(examples=[[p] for p in examples], inputs=[image], label="Examples")
             with gr.Column(scale=2):
-                perception_img = gr.Image(label="Module 1 — perception", type="filepath")
-                harmony_img = gr.Image(label="Module 2 — harmoniousness", type="filepath")
-                trend_img = gr.Image(label="Module 3 — per-garment trendiness", type="filepath")
-                gr.Markdown("### Module 4 — recommendation")
-                verdict = gr.Markdown()
-                gallery = gr.Gallery(label="Suggestions", columns=3, height=320)
-                also = gr.Markdown()
-                with gr.Row():
-                    choice = gr.Dropdown(choices=[], label="Try this swap")
-                board = gr.Image(label="Your outfit with the swap", type="filepath")
-                board_text = gr.Markdown()
-                table = gr.Dataframe(headers=PER_PIECE_HEADERS, label="Per piece", interactive=False)
-                log = gr.Textbox(label="Log", lines=10)
+                status = gr.HTML(elem_id="status")
+                with gr.Tabs(elem_id="results") as tabs:
+                    with gr.Tab("1 · Perception", id="m1"):
+                        perception_img = gr.Image(label="Garments and attributes", type="filepath")
+                    with gr.Tab("2 · Harmony", id="m2"):
+                        harmony_img = gr.Image(label="Harmoniousness", type="filepath")
+                    with gr.Tab("3 · Trend", id="m3"):
+                        trend_img = gr.Image(label="Per-garment trendiness", type="filepath")
+                    with gr.Tab("4 · Recommendation", id="m4"):
+                        verdict = gr.Markdown()
+                        gallery = gr.Gallery(label="Suggestions", columns=3, height=320)
+                        also = gr.Markdown()
+                        choice = gr.Dropdown(choices=[], label="Try this swap")
+                        board = gr.Image(label="Your outfit with the swap", type="filepath")
+                        board_text = gr.Markdown()
+                        table = gr.Dataframe(headers=PER_PIECE_HEADERS, label="Per piece", interactive=False)
+                    with gr.Tab("Log", id="log"):
+                        log = gr.Textbox(label="Log", lines=16, show_label=False)
 
         m4_outputs = [verdict, gallery, also, table, choice, board, board_text, m4_state]
+        run_btn.click(_open_tab, inputs=[module], outputs=[tabs], queue=False)
         run_btn.click(analyze,
                       inputs=[image, module, device, pool, same_type, no_trend_drop, rule, w_t],
-                      outputs=[perception_img, harmony_img, trend_img, log] + m4_outputs)
+                      outputs=[perception_img, harmony_img, trend_img, log] + m4_outputs
+                      ).then(status_html, inputs=[log], outputs=[status], queue=False)
         w_t.release(rerank, inputs=[m4_state, w_t, rule], outputs=m4_outputs)
         rule.change(rerank, inputs=[m4_state, w_t, rule], outputs=m4_outputs)
         choice.change(try_swap, inputs=[m4_state, choice], outputs=[board, board_text])
@@ -364,7 +445,21 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Outfit compatibility demo (Modules 1-4)")
     ap.add_argument("--vram-gb", type=float, default=None, dest="vram_gb",
                     help=f"GPU memory cap for Module 4 (default {SETTINGS.vram_gb} from m4_settings.json)")
+    ap.add_argument("--advanced", action="store_true",
+                    help="show the device and Module 4 options (pool, same type, trend floor, rule)")
+    ap.add_argument("--share", action="store_true",
+                    help="also serve a public gradio.live link (requires --auth or DEMO_AUTH)")
+    ap.add_argument("--auth", default=os.environ.get("DEMO_AUTH"),
+                    help="user:password for the login page (default: the DEMO_AUTH environment variable)")
+    ap.add_argument("--port", type=int, default=None, help="local port (default 7860)")
     args = ap.parse_args()
+    try:
+        auth = parse_auth(args.auth)
+    except ValueError as e:
+        ap.error(str(e))
+    if args.share and not auth:
+        ap.error("--share makes the demo public: set a password with --auth user:password or DEMO_AUTH")
     if args.vram_gb is not None:
         SETTINGS = SETTINGS.with_(vram_gb=args.vram_gb)
-    build_ui().launch(inbrowser=True)
+    build_ui(advanced=args.advanced).launch(inbrowser=True, share=args.share, auth=auth,
+                                            server_port=args.port, theme=theme(), css=CSS)
