@@ -32,6 +32,8 @@ Template: `PPT-Template_Phase3- Review3.pptx` (blank). Checked against the repo 
   study, catalogue QA). Chapter number assumed to follow Chapter 7. Test run that day: Module 1 23,
   Module 3 7, Module 4 130 (incl. `real`), all pass. Not in the chapter: the "M2 AUC 0.7469 at
   Review 2" figure above (no source found in the repo); Kit 2 reported as not done.
+  Slide content for the template's Results and Discussion section (9 slides, R1–R9, with visuals
+  and speaker notes): `docs/report/review3-results-slides.md`.
 - [x] **Review 1 suggestion: non-human subjects (done 2026-11-22).** 16 Unsplash photos in
   `samples/nonhuman/` (13 dressed pets, 1 undressed dog, 2 person + pet; sources in `manifest.csv`).
   - Before: every photo produced an outfit. The undressed golden retriever's face became a
@@ -571,4 +573,9 @@ From [`Module2/README.md`](../Module2/README.md) ("Raising AUC above ~0.80"), ch
   all pass (M1's now also from the repo root: `python -m pytest Module1`); 58 of 59 src/scripts files load (the exception, `Module3/scripts/gradio_demo.py`, needs
   a `pinterest_trend_model.pkl` that does not exist, as before); a full demo run on `image2.jpg` gives
   the same harmony 77, verdict and 41,866 what-if outfits.
+  - Merged into `main` the same day with the 4 later `m4-hm-coral-refresh-cap` commits (report
+    chapters, Review 3 slides, demo front end, weak-label evaluation). Their copies of files that had
+    moved were dropped (only path lines differed), and `docs/report/*.md` paths were rewritten. Same
+    tests and demo check pass on the merge. Still on the old paths: the Word export
+    `docs/report/chapter7-system-design.docx` (re-export it from the `.md`).
 - [ ] Before any M3 re-run: `Module3/tests/test_module1_sync.py` and `Module3/tests/test_embedding_parity.py` must pass.
