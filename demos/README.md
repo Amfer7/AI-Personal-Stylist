@@ -7,8 +7,14 @@ pip install -r Module1/requirements.txt   # includes gradio
 python demo.py                            # opens in your browser
 ```
 
-Upload or paste an outfit photo (or use the example from `samples/`), choose **Module 1**, **2**, **3** or
-**All**, and click **Run**. Models load once, so the first run is slow (~30–60 s) and later runs are fast.
+Upload or paste an outfit photo (or click an example from `samples/`), choose **Module 1**–**4** or
+**All**, and click **Run**. Results open in one tab per module; the line above the tabs says when the
+run is done or why it stopped. Models load once, so the first run is slow (~30–60 s) and later runs are fast.
+
+```bash
+python demo.py --advanced                         # also show the device and Module 4 options
+python demo.py --share --auth team:password       # public link for remote viewers (password required)
+```
 
 The app writes these figures into this folder. **They're generated locally and never committed**
 (the repo ignores all images):
